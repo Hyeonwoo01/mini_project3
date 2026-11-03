@@ -10,7 +10,8 @@
 - 거리 계산은 코사인. 유사도 = 1 - 거리
 - 이어서 적재: 청크 id 가 결정적(<doc_id>#<순번>)이므로 중단 후 같은 명령을 다시 실행하면 이미 적재된
   청크는 건너뛴다 (공용 API 키의 호출 한도로 중간에 실패할 수 있다). 같은 id 라도 청크 내용이 바뀌었으면
-  (청킹 규칙 변경 등) 다시 임베딩해 덮어쓴다.
+  (청킹 규칙 변경 등) 다시 임베딩해 덮어쓴다. 내용은 같고 메타데이터만 바뀌었으면 (품질 규칙 변경으로 scope 가
+  바뀐 경우 등) 임베딩 없이 메타데이터만 갱신한다.
 - 지식베이스가 바뀌어(indexer prepare 재실행) 더 이상 없는 청크는 컬렉션에서 지운다.
 """
 
@@ -47,6 +48,7 @@ class BuildStats:
     skipped_empty: int = 0
     added: int = 0
     updated: int = 0
+    metadata_updated: int = 0
     already_present: int = 0
     removed_stale: int = 0
     body_lengths: list[int] = field(default_factory=list)
@@ -61,7 +63,8 @@ class BuildStats:
             short = sum(length < 100 for length in self.body_lengths)
             lines.append(f"  100자 미만 청크: {short:,}개 ({short / len(self.body_lengths):.1%})")
         lines.append(f"  빈 청크로 제외: {self.skipped_empty:,}개")
-        lines.append(f"  새로 적재 {self.added:,}개 · 내용 변경으로 갱신 {self.updated:,}개 · 이미 있음 {self.already_present:,}개 "
+        lines.append(f"  새로 적재 {self.added:,}개 · 내용 변경으로 갱신 {self.updated:,}개 "
+                     f"· 메타데이터만 갱신 {self.metadata_updated:,}개 · 이미 있음 {self.already_present:,}개 "
                      f"· 오래된 청크 삭제 {self.removed_stale:,}개")
         return "\n".join(lines)
 
@@ -164,17 +167,23 @@ def build_collection(
     started = last_report = time.monotonic()
     batches = [chunks[i:i + ADD_BATCH] for i in range(0, len(chunks), ADD_BATCH)]
     for number, batch in enumerate(batches, start=1):
-        found = col.get(ids=[c.chunk_id for c in batch], include=["documents"])
-        stored = dict(zip(found["ids"], found["documents"]))
-        todo = [c for c in batch if stored.get(c.chunk_id) != c.text]
+        found = col.get(ids=[c.chunk_id for c in batch], include=["documents", "metadatas"])
+        stored = {cid: (doc, meta) for cid, doc, meta in zip(found["ids"], found["documents"], found["metadatas"])}
+        todo = [c for c in batch if c.chunk_id not in stored or stored[c.chunk_id][0] != c.text]
         changed = sum(c.chunk_id in stored for c in todo)
-        stats.already_present += len(batch) - len(todo)
+        meta_only = [c for c in batch if c.chunk_id in stored and stored[c.chunk_id][0] == c.text
+                     and stored[c.chunk_id][1] != c.metadata]
+        if meta_only:   # documents·embeddings 를 넘기지 않으면 Chroma 는 임베딩을 다시 계산하지 않는다
+            col.update(ids=[c.chunk_id for c in meta_only], metadatas=[c.metadata for c in meta_only])
+            stats.metadata_updated += len(meta_only)
+        stats.already_present += len(batch) - len(todo) - len(meta_only)
         if todo:
             try:
                 vectors = embeddings.embed_documents([c.text for c in todo])
             except Exception as exc:  # API 오류(호출 한도 등)를 이어서 적재 안내와 함께 알린다
                 raise SystemExit(
-                    f"임베딩 중단 ({stats.added + stats.updated + stats.already_present:,}/{len(chunks):,}개 처리): {exc}\n"
+                    f"임베딩 중단 ({stats.added + stats.updated + stats.metadata_updated + stats.already_present:,}"
+                    f"/{len(chunks):,}개 처리): {exc}\n"
                     "같은 명령을 다시 실행하면 이미 적재된 청크는 건너뛰고 이어서 진행합니다."
                 ) from exc
             col.upsert(ids=[c.chunk_id for c in todo], documents=[c.text for c in todo],

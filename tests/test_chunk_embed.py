@@ -149,3 +149,23 @@ def test_full_collection_reads_are_paginated(env, monkeypatch):
     assert (report.chunks, report.documents, report.missing_documents) == (3, 2, 0)
     _seed(db, {"a": 12})
     assert build_collection(get_chunk_config("c500"), "docs__c500", **kwargs).removed_stale == 1
+
+
+class _NoCallEmbeddings(DeterministicFakeEmbedding):
+    def embed_documents(self, texts):
+        raise AssertionError("메타데이터만 바뀐 청크를 다시 임베딩했습니다")
+
+
+def test_metadata_only_change_updates_without_embedding(env):
+    import chromadb
+    db, chroma, kwargs = env
+    build_collection(get_chunk_config("c500"), "docs__c500", **kwargs)
+    with open_db(db) as conn:                                   # 품질 규칙 변경으로 b 의 scope 만 바뀐 상황
+        conn.execute("UPDATE processed_documents SET scope = 'seoul' WHERE doc_id = 'b'")
+        conn.commit()
+    stats = build_collection(get_chunk_config("c500"), "docs__c500",
+                             **{**kwargs, "embeddings": _NoCallEmbeddings(size=16)})
+    assert (stats.added, stats.updated, stats.metadata_updated, stats.already_present) == (0, 0, 1, 2)
+    col = chromadb.PersistentClient(path=str(chroma)).get_collection("docs__c500")
+    assert col.get(ids=["b#000"], include=["metadatas"])["metadatas"][0]["scope"] == "seoul"
+    assert "메타데이터만 갱신 1개" in stats.summary()
