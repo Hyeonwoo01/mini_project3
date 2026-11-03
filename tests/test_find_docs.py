@@ -71,3 +71,12 @@ def test_batch_search_writes_markdown(conn, tmp_path):
     assert "(검색 결과 없음" in text
     with pytest.raises(ValueError):
         parse_batch_line("f002 | 검색어 없음")
+
+
+def test_batch_file_with_bom_and_crlf(conn, tmp_path):
+    from eval.find_docs import run_batch
+    drafts = tmp_path / "drafts.txt"
+    drafts.write_bytes("f001 | 상생페이백 11월분 지급액은? | 상생페이백 11월\r\n".encode("utf-8-sig"))
+    out = tmp_path / "candidates.md"
+    assert run_batch(conn, drafts, out) == 0
+    assert "## f001 — " in out.read_text(encoding="utf-8")       # BOM 이 id 앞에 붙지 않음

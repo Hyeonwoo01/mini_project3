@@ -120,7 +120,9 @@ def parse_batch_line(line: str) -> tuple[str, str, list[str]] | None:
 
 def run_batch(conn: sqlite3.Connection, batch_path: Path, out_path: Path, limit: int = BATCH_LIMIT) -> int:
     """문항 후보마다 검색해 결과를 마크다운으로 저장한다. 검색 결과가 없는 문항 수를 반환한다."""
-    entries = [e for line in batch_path.read_text(encoding="utf-8").splitlines() if (e := parse_batch_line(line))]
+    # Windows 메모장은 UTF-8 저장 시 BOM 을 붙이므로 utf-8-sig 로 읽는다
+    text = batch_path.read_text(encoding="utf-8-sig")
+    entries = [e for line in text.splitlines() if (e := parse_batch_line(line))]
     lines = ["# 평가셋 후보 검색 결과", "",
              "후보 기사를 읽고 답이 실제로 있는지 확인한 뒤 gold_doc_ids 를 정한다 (--doc 으로 전문 확인).", ""]
     empty = 0
@@ -152,6 +154,8 @@ def main() -> None:
     args = parser.parse_args()
     if not args.doc and not args.terms and not args.batch:
         parser.error("검색어, --doc 또는 --batch 가 필요합니다")
+    if args.batch and not args.batch.is_file():
+        parser.error(f"--batch 파일이 없습니다: {args.batch} ('id | 질문 | 검색어' 형식으로 먼저 만드세요)")
 
     try:
         with open_db(read_only=True) as conn:
@@ -159,7 +163,10 @@ def main() -> None:
                 print(show_document(conn, args.doc))
                 return
             if args.batch:
-                empty = run_batch(conn, args.batch, args.out)
+                try:
+                    empty = run_batch(conn, args.batch, args.out)
+                except ValueError as exc:
+                    raise SystemExit(f"{args.batch}: {exc}") from exc
                 print(f"저장: {args.out} (검색 결과 없는 문항 {empty}개)")
                 return
             found = search(conn, args.terms, scope=args.scope, year=args.year, limit=args.limit)
