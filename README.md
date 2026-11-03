@@ -92,6 +92,7 @@ mini_project3/
 ├── collector/              # ① 수집 계층 (배치)
 │   ├── __main__.py
 │   ├── fetch.py            #   robots.txt·딜레이를 강제하는 공용 요청 모듈
+│   ├── probe.py            #   수집 후보 사이트 접근 확인 (robots.txt·응답·표본 HTML)
 │   ├── load_provided.py    #   제공 데이터 적재 및 선별
 │   ├── crawl_korea_kr.py   #   정책브리핑 보도자료 수집
 │   ├── crawl_blog.py       #   블로그 검색 API 수집
@@ -163,6 +164,13 @@ cp .env.example .env        # 이후 .env 에 OPENAI_API_KEY 등을 채운다
 
 ```bash
 python -m collector provided
+```
+
+직접 수집 크롤러를 만들기 전에, 수집할 PC 에서 후보 사이트의 robots.txt 와 응답을 확인한다.
+결과는 `data/raw/_probe/report.txt`, 받은 HTML 은 같은 폴더에 저장된다 (파서 작성용 표본).
+
+```bash
+python -m collector probe
 ```
 
 ```bash

@@ -1,5 +1,6 @@
 """수집 계층 실행 진입점.
 
+    python -m collector probe                 # 수집 후보 사이트 접근 확인 (크롤러 작성 전)
     python -m collector provided              # 제공 뉴스 데이터 적재
     python -m collector korea-kr --query ...  # 정책브리핑 보도자료 수집
     python -m collector blog --query ...      # 블로그 검색 API 수집
@@ -8,12 +9,16 @@
 
 import argparse
 
-from collector import collect_law, crawl_blog, crawl_korea_kr, load_provided
+from collector import collect_law, crawl_blog, crawl_korea_kr, load_provided, probe
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m collector", description="① 수집 계층")
     sub = parser.add_subparsers(dest="command", required=True)
+
+    probe_cmd = sub.add_parser("probe", help="수집 후보 사이트의 robots.txt·응답 확인, 표본 HTML 저장")
+    probe_cmd.add_argument("--only", nargs="+", metavar="KEY",
+                           help=f"확인할 후보 ({', '.join(t.key for t in probe.PROBE_TARGETS)})")
 
     provided = sub.add_parser("provided", help="제공 데이터(뉴스 CSV) 적재")
     provided.add_argument(
@@ -36,7 +41,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = build_parser().parse_args()
-    if args.command == "provided":
+    if args.command == "probe":
+        probe.run(only=args.only)
+    elif args.command == "provided":
         load_provided.run(files=args.file)
     elif args.command == "korea-kr":
         crawl_korea_kr.run(queries=args.query, max_pages=args.max_pages)
