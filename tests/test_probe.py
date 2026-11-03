@@ -4,7 +4,8 @@ from collector.probe import PROBE_TARGETS, ProbeTarget, analyze_html, probe_targ
 
 SITE = "https://board.go.kr"
 LIST_HTML = """<html><head><title>보도자료 | 기관</title><script>var x = "긴 스크립트";</script></head>
-<body><nav><a href="/press">보도자료</a> <a href="/press">보도자료</a> <a href="/about">기관소개</a></nav>
+<body><nav><a href="/press">보도자료</a> <a href="/press">보도자료</a> <a href="/about">기관소개</a>
+<a href="javascript:openMenu()">메뉴</a></nav>
 <ul>
   <li><a href="/press/101?curPage=1">소상공인 지원 확대</a></li>
   <li><a href="/press/102">카드수수료 인하</a></li>
@@ -19,11 +20,21 @@ def test_analyze_html_finds_keyword_detail_and_js_links():
     info = analyze_html(LIST_HTML, f"{SITE}/press", keywords=("보도자료",), detail_pattern=r"/press/\d+")
 
     assert info.title == "보도자료 | 기관"
-    assert info.link_count == 8                       # href·onclick 이 없는 a 는 세지 않는다
-    assert info.js_links == 2
-    assert info.js_samples == ["javascript:fn_view('103')", "goView(104); return false;"]
+    assert info.link_count == 9                       # href·onclick 이 없는 a 는 세지 않는다
+    assert info.js_links == 3
+    # 게시물 제목처럼 긴 링크의 호출 방식이 메뉴 링크보다 먼저 나온다
+    assert info.js_samples == ["javascript:fn_view('103')", "goView(104); return false;", "javascript:openMenu()"]
     assert info.keyword_links == [("보도자료", f"{SITE}/press")]      # 같은 주소는 한 번만
     assert info.detail_urls == [f"{SITE}/press/101?curPage=1", f"{SITE}/press/102"]
+
+
+def test_analyze_html_finds_attachment_links():
+    html = """<a href="/comm/getFile?upperNo=1&fileNo=1">보도자료.hwp</a>
+    <a href="/files/report.PDF">보고서</a> <a href="/files/report.PDF">보고서 중복</a>
+    <a href="/pdf-guide">안내</a> <a href="/press/1">본문</a>"""
+    info = analyze_html(html, SITE)
+    assert info.attachments == [("보도자료.hwp", f"{SITE}/comm/getFile?upperNo=1&fileNo=1"),
+                                ("보고서", f"{SITE}/files/report.PDF")]
 
 
 def test_text_chars_excludes_scripts_and_styles():
@@ -40,12 +51,15 @@ def _target(**kwargs):
 def test_probe_saves_list_and_first_detail(tmp_path, make_fetcher, http):
     http.route(f"{SITE}/robots.txt", (200, "User-agent: *\nAllow: /\n"))
     http.route(f"{SITE}/press", (200, LIST_HTML))
-    http.route(f"{SITE}/press/101?curPage=1", (200, "<html><title>상세</title><body>본문 내용</body></html>"))
+    http.route(f"{SITE}/press/101?curPage=1", (200, "<html><title>상세</title><body>본문 내용"
+                                                   "<a href='/comm/getFile?fileNo=1'>원문.hwp</a></body></html>"))
     lines = []
 
     summary = probe_target(make_fetcher(), _target(), tmp_path, lines.append)
 
-    assert summary == "200 · 링크 8 · 상세 2건, 첫 상세 200"
+    assert summary == "200 · 링크 9 · 상세 2건, 첫 상세 200, 첨부 1"
+    assert "  첨부    1개 · 첫 첨부 robots allowed" in lines
+    assert f"{SITE}/comm/getFile?fileNo=1" not in http.calls       # 첨부는 내려받지 않는다
     assert (tmp_path / "board_list.html").read_text(encoding="utf-8") == LIST_HTML
     assert "본문 내용" in (tmp_path / "board_detail.html").read_text(encoding="utf-8")
     assert any(line.startswith("  키워드  보도자료 → ") for line in lines)

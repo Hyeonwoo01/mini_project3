@@ -19,7 +19,7 @@
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from urllib.parse import urljoin
+from urllib.parse import urlencode, urljoin
 
 import requests
 from bs4 import BeautifulSoup
@@ -29,7 +29,11 @@ from common.config import get_settings
 
 KEYWORD_LINK_LIMIT = 8
 JS_SAMPLE_LIMIT = 3
+ATTACHMENT_SAMPLE_LIMIT = 3
+TITLE_LIKE_CHARS = 8      # 이보다 긴 링크 글자는 게시물 제목일 가능성이 높다 (메뉴 링크는 짧다)
 PREVIEW_CHARS = 200
+# 첨부파일(원문 HWP·PDF) 링크로 보이는 주소. 사이트마다 다운로드 경로 이름이 달라 흔한 형태를 모두 본다
+ATTACHMENT_HINT = re.compile(r"download|getfile|filedown|atchfile|\.(?:hwpx?|pdf)(?:$|[?#&])", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -43,19 +47,26 @@ class ProbeTarget:
 
 
 PROBE_TARGETS: tuple[ProbeTarget, ...] = (
-    ProbeTarget("korea_kr", "정책브리핑 보도자료 목록", "https://www.korea.kr/briefing/pressReleaseList.do",
-                keywords=("보도자료",), detail_pattern=r"pressReleaseView\.do"),
+    ProbeTarget("korea_kr", "정책브리핑 보도자료 목록 (최신)", "https://www.korea.kr/briefing/pressReleaseList.do",
+                keywords=("보도자료",), detail_pattern=r"pressReleaseView\.do", verified=True),
+    # 목록 주소에 보이는 검색어·기간 파라미터가 실제로 결과를 거르는지 확인한다
+    ProbeTarget("korea_kr_search", "정책브리핑 보도자료 검색 (검색어 소상공인, 기간 지정)",
+                "https://www.korea.kr/briefing/pressReleaseList.do?" + urlencode(
+                    {"pageIndex": 1, "startDate": "2021-10-16", "endDate": "2026-10-16", "srchWord": "소상공인"}),
+                keywords=("소상공인",), detail_pattern=r"pressReleaseView\.do", verified=True),
     ProbeTarget("fsc", "금융위원회 보도자료 목록 (카드수수료)", "https://www.fsc.go.kr/no010101",
                 keywords=("보도자료",), detail_pattern=r"fsc\.go\.kr/no010101/\d+", verified=True),
-    ProbeTarget("mss", "중소벤처기업부 첫 화면 (보도자료 게시판 주소 찾기)", "https://www.mss.go.kr/site/smba/main.do",
-                keywords=("보도자료", "보도설명"), verified=True),
+    # 게시판 주소는 첫 화면 probe 로 확인했다. 상세 주소 형식은 추정 (javascript 로 열면 JS링크에 나온다)
+    ProbeTarget("mss_press", "중소벤처기업부 보도자료 게시판", "https://www.mss.go.kr/site/smba/ex/bbs/List.do?cbIdx=86",
+                keywords=("소상공인",), detail_pattern=r"View\.do\?cbIdx=86", verified=True),
     ProbeTarget("seoul_economy", "서울시 경제분야 누리집 소상공인 소식",
                 "https://news.seoul.go.kr/economy/archives/category/nationaleconomy-news_c1/"
                 "street_biz_nationaleconomy-news-n1/",
                 keywords=("보도자료", "소상공인"), detail_pattern=r"news\.seoul\.go\.kr/economy/archives/\d+",
                 verified=True),
+    # robots.txt 가 금지 (2026-11-03 확인) → 수집하지 않는다. 판단 근거를 남기려고 확인 대상에 둔다
     ProbeTarget("seoul", "서울시 보도자료 목록", "https://www.seoul.go.kr/news/news_report.do",
-                keywords=("보도자료",)),
+                keywords=("보도자료",), verified=True),
     ProbeTarget("law", "국가법령정보센터 Open API (인증값 OC 없이 응답만 확인)",
                 "https://www.law.go.kr/DRF/lawSearch.do?target=law&type=XML&query=%EC%86%8C%EC%83%81%EA%B3%B5%EC%9D%B8",
                 verified=True),
@@ -72,6 +83,7 @@ class PageInfo:
     js_samples: list[str] = field(default_factory=list)
     keyword_links: list[tuple[str, str]] = field(default_factory=list)   # (링크 글자, 절대 URL)
     detail_urls: list[str] = field(default_factory=list)
+    attachments: list[tuple[str, str]] = field(default_factory=list)     # (링크 글자, 절대 URL)
 
 
 def analyze_html(html: str, base_url: str, keywords: tuple[str, ...] = (),
@@ -82,7 +94,8 @@ def analyze_html(html: str, base_url: str, keywords: tuple[str, ...] = (),
         tag.decompose()
     info.text_chars = len(soup.get_text(" ", strip=True))
     detail = re.compile(detail_pattern) if detail_pattern else None
-    seen_keyword, seen_detail = set(), set()
+    seen_keyword, seen_detail, seen_attachment = set(), set(), set()
+    js_titles, js_others = [], []     # 게시물 제목처럼 긴 링크의 호출 방식을 먼저 보여 준다
     for a in soup.find_all("a"):
         href = (a.get("href") or "").strip()
         onclick = (a.get("onclick") or "").strip()
@@ -92,9 +105,7 @@ def analyze_html(html: str, base_url: str, keywords: tuple[str, ...] = (),
         text = a.get_text(" ", strip=True)
         if href.lower().startswith("javascript:") or (onclick and href in ("", "#")):
             info.js_links += 1
-            sample = onclick or href
-            if len(info.js_samples) < JS_SAMPLE_LIMIT and sample not in info.js_samples:
-                info.js_samples.append(sample[:120])
+            (js_titles if len(text) >= TITLE_LIKE_CHARS else js_others).append((onclick or href)[:120])
             continue
         url = urljoin(base_url, href)
         if keywords and any(k in text for k in keywords) and url not in seen_keyword:
@@ -104,6 +115,10 @@ def analyze_html(html: str, base_url: str, keywords: tuple[str, ...] = (),
         if detail and detail.search(url) and url not in seen_detail:
             seen_detail.add(url)
             info.detail_urls.append(url)
+        if ATTACHMENT_HINT.search(url) and url not in seen_attachment:
+            seen_attachment.add(url)
+            info.attachments.append((text[:40], url))
+    info.js_samples = list(dict.fromkeys(js_titles + js_others))[:JS_SAMPLE_LIMIT]
     return info
 
 
@@ -166,7 +181,16 @@ def probe_target(fetcher: Fetcher, target: ProbeTarget, out_dir: Path, emit) -> 
     (out_dir / f"{target.key}_detail.html").write_bytes(detail.content)
     detail_info = analyze_html(detail.text, detail.url) if "html" in detail.content_type.lower() else PageInfo()
     emit(f"          {_describe(detail)} · 제목 {detail_info.title or '(없음)'} · 본문 {detail_info.text_chars:,}자")
-    return summary + f" · 상세 {len(info.detail_urls)}건, 첫 상세 {detail.status}"
+    summary += f" · 상세 {len(info.detail_urls)}건, 첫 상세 {detail.status}"
+    if not detail_info.attachments:
+        emit("  첨부    첨부파일로 보이는 링크 없음")
+        return summary
+    # 첨부는 내려받지 않고, 내려받아도 되는지(robots.txt)만 확인한다
+    first_attachment = detail_info.attachments[0][1]
+    emit(f"  첨부    {len(detail_info.attachments)}개 · 첫 첨부 robots {fetcher.check_robots(first_attachment).status}")
+    for text, url in detail_info.attachments[:ATTACHMENT_SAMPLE_LIMIT]:
+        emit(f"          {text or '(글자 없음)'} → {url}")
+    return summary + f", 첨부 {len(detail_info.attachments)}"
 
 
 def run(only: list[str] | None = None, out_dir: Path | None = None, fetcher: Fetcher | None = None) -> None:
