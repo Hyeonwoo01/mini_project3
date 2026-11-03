@@ -5,6 +5,7 @@
 테이블 소유권 — 각 테이블은 한 계층만 기록한다.
     documents            collector 가 기록. 수집 원문과 출처 메타데이터.
     processed_documents  indexer 가 기록. 정제 본문, 중복 판정 결과.
+    keyword_index        indexer 가 기록. 인덱싱 대상(kept) 문서의 키워드 검색 색인 (FTS5).
 rag / app / eval 은 open_db(read_only=True) 로만 연다. SQLite 수준에서 쓰기가 차단된다.
 
 URL 에 UNIQUE 제약을 두지 않는다. 제공 데이터의 완전 중복(같은 URL)도 일단 모두 적재해야
@@ -13,13 +14,14 @@ URL 에 UNIQUE 제약을 두지 않는다. 제공 데이터의 완전 중복(같
 
 import json
 import sqlite3
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
 from common.config import get_settings
 from common.schema import DocumentRecord, ProcessedRecord
+from common.text import keyword_terms
 
 DOCUMENTS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS documents (
@@ -55,6 +57,14 @@ CREATE TABLE IF NOT EXISTS processed_documents (
 );
 CREATE INDEX IF NOT EXISTS idx_processed_status ON processed_documents(status);
 """
+
+# indexer 가 prepare 실행마다 다시 만드는 키워드 검색 색인. 인덱싱 대상(kept) 문서만 담는다.
+# SQLite 기본 토크나이저는 한글을 어절 단위로만 자르므로, common.text.keyword_terms 로 미리 자른 토큰을
+# 공백으로 이어 넣는다. 제목과 본문을 다른 열에 두어 BM25 에서 제목 일치에 가중치를 준다.
+KEYWORD_SCHEMA = """
+CREATE VIRTUAL TABLE keyword_index USING fts5(doc_id UNINDEXED, title_terms, body_terms, tokenize = 'unicode61');
+"""
+KEYWORD_TITLE_WEIGHT = 2.0
 
 _DOCUMENT_COLUMNS = (
     "doc_id", "doc_type", "source", "title", "url", "published_at", "collected_at",
@@ -159,3 +169,58 @@ def replace_processed_documents(conn: sqlite3.Connection, records: Iterable[Proc
         rows,
     )
     return len(rows)
+
+
+def replace_keyword_index(conn: sqlite3.Connection, docs: Iterable[tuple[str, str, str]]) -> int:
+    """(doc_id, 제목, 정제 본문) 으로 키워드 색인을 다시 만든다. 색인된 문서 수를 반환한다."""
+    conn.executescript("DROP TABLE IF EXISTS keyword_index;" + KEYWORD_SCHEMA)
+    rows = ((doc_id, " ".join(keyword_terms(title)), " ".join(keyword_terms(text or "")))
+            for doc_id, title, text in docs)
+    return conn.executemany(
+        "INSERT INTO keyword_index (doc_id, title_terms, body_terms) VALUES (?, ?, ?)", rows
+    ).rowcount
+
+
+def search_keyword_index(
+    conn: sqlite3.Connection,
+    terms: Sequence[str],
+    *,
+    limit: int,
+    doc_types: Sequence[str] = (),
+    date_from: str | None = None,
+    date_to: str | None = None,
+    scopes: Sequence[str] = (),
+) -> list[tuple[str, float]]:
+    """토큰 중 하나라도 포함한 문서를 BM25 순으로 반환한다. (doc_id, 점수) — 점수는 클수록 관련이 높다.
+
+    date_from/date_to 는 'YYYY-MM-DD'. 기간 조건이 있으면 발행일 미상 문서는 빠진다 (의미 검색과 같은 규칙).
+    """
+    if not terms:
+        return []
+    match = " OR ".join('"' + term.replace('"', '""') + '"' for term in dict.fromkeys(terms))
+    sql = ["SELECT keyword_index.doc_id, -bm25(keyword_index, 0.0, ?, 1.0) AS score",
+           "FROM keyword_index JOIN documents AS d ON d.doc_id = keyword_index.doc_id",
+           "JOIN processed_documents AS p ON p.doc_id = keyword_index.doc_id",
+           "WHERE keyword_index MATCH ?"]
+    params: list[object] = [KEYWORD_TITLE_WEIGHT, match]
+    if doc_types:
+        sql.append(f"AND d.doc_type IN ({', '.join('?' for _ in doc_types)})")
+        params += list(doc_types)
+    if scopes:
+        sql.append(f"AND p.scope IN ({', '.join('?' for _ in scopes)})")
+        params += list(scopes)
+    if date_from:
+        sql.append("AND substr(d.published_at, 1, 10) >= ?")
+        params.append(date_from)
+    if date_to:
+        sql.append("AND substr(d.published_at, 1, 10) <= ?")
+        params.append(date_to)
+    sql.append("ORDER BY score DESC LIMIT ?")
+    params.append(limit)
+    try:
+        rows = conn.execute("\n".join(sql), params).fetchall()
+    except sqlite3.OperationalError as exc:
+        if "no such table: keyword_index" in str(exc):
+            raise RuntimeError("키워드 색인이 없습니다. python -m indexer prepare 를 다시 실행하세요.") from exc
+        raise
+    return [(row[0], float(row[1])) for row in rows]

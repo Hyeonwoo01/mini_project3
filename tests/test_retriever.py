@@ -92,3 +92,66 @@ def test_errors(chroma):
     assert retriever.retrieve("   ", k=3) == []
     with pytest.raises(ValueError):
         retriever.retrieve("소상공인", k=0)
+
+
+HYBRID_DOCS = {  # doc_id: (제목, 본문) — 질의 '2027년도 예산안' 과 겹치는 토큰은 b2027 에만 있다
+    "b2027": ("소상공인 금융지원 확대", "중기부는 2027년도 예산안에 금융지원 4조2500억원을 담았다. " * 3),
+    "alley": ("서울 골목상권 매출 증가", "서울 골목상권 매출이 늘었다. 상인회는 축제를 열었다. " * 3),
+    "market": ("전통시장 축제 개최", "전통시장 상인회가 가을 축제를 열고 할인 행사를 진행했다. " * 3),
+}
+
+
+@pytest.fixture(scope="module")
+def hybrid_env(tmp_path_factory):
+    from common.docstore import replace_keyword_index
+    tmp = tmp_path_factory.mktemp("hybrid")
+    db, chroma_dir = tmp / "docs.db", tmp / "chroma"
+    with open_db(db) as conn:
+        upsert_documents(conn, [
+            DocumentRecord(doc_id=d, doc_type=DocType.NEWS, source="연합뉴스", title=t, url=f"https://x/{d}",
+                           collected_at="2026-10-16", collect_method=CollectMethod.PROVIDED,
+                           published_at="2026-09-01T09:00:00")
+            for d, (t, _) in HYBRID_DOCS.items()
+        ])
+        replace_processed_documents(conn, [
+            ProcessedRecord(doc_id=d, status="kept", processed_at="2026-11-03", clean_text=x, canonical_doc_id=d,
+                            scope="national")
+            for d, (_, x) in HYBRID_DOCS.items()
+        ])
+        replace_keyword_index(conn, [(d, t, x) for d, (t, x) in HYBRID_DOCS.items()])
+    build_collection(get_chunk_config("c500"), "docs__hybrid", embeddings=FAKE, embedding_model_name="fake",
+                     chroma_dir=chroma_dir, db_path=db, progress=lambda _: None)
+    return db, chroma_dir
+
+
+def _hybrid(env, **kwargs):
+    db, chroma_dir = env
+    return Retriever("docs__hybrid", chroma_dir=chroma_dir, embeddings=FAKE, embedding_model_name="fake",
+                     mode="hybrid", db_path=db, **kwargs)
+
+
+def test_hybrid_ranks_keyword_match_first_and_records_ranks(hybrid_env):
+    results = _hybrid(hybrid_env).retrieve("2027년도 예산안 규모는?", k=3)
+    assert results[0].doc_id == "b2027"                       # 키워드 1위 + 의미 순위 → RRF 1위
+    assert results[0].metadata["keyword_rank"] == 1 and results[0].metadata["vector_rank"] in (1, 2, 3)
+    assert {r.doc_id for r in results} == set(HYBRID_DOCS)
+    assert all(r.metadata["keyword_rank"] is None for r in results[1:])
+    assert all(-1.0 <= r.score <= 1.0 for r in results)       # score 는 여전히 코사인 유사도
+
+
+def test_hybrid_fetches_chunk_for_keyword_only_document(hybrid_env):
+    retriever = _hybrid(hybrid_env)
+    retriever._vector_chunks = lambda *args, **kwargs: []    # 의미 검색 후보에 없는 상황을 만든다
+    results = retriever.retrieve("2027년도 예산안 규모는?", k=3)
+    assert [r.doc_id for r in results] == ["b2027"]            # 키워드로만 찾은 문서
+    assert results[0].metadata["vector_rank"] is None and results[0].metadata["keyword_rank"] == 1
+    assert results[0].chunk_id.startswith("b2027#") and results[0].text   # 질문 벡터로 그 문서의 청크를 골라 붙임
+    assert -1.0 <= results[0].score <= 1.0
+
+
+def test_retrieval_mode_validation(hybrid_env):
+    with pytest.raises(ValueError):
+        _hybrid(hybrid_env, max_chunks_per_doc=2)
+    db, chroma_dir = hybrid_env
+    with pytest.raises(ValueError):
+        Retriever("docs__hybrid", chroma_dir=chroma_dir, embeddings=FAKE, embedding_model_name="fake", mode="bm25")

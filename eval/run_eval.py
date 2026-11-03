@@ -38,10 +38,10 @@ from pathlib import Path
 from statistics import mean, median
 from typing import Any, Protocol
 
-from common.config import PROJECT_ROOT, get_settings
+from common.config import PROJECT_ROOT, RETRIEVAL_MODES, get_settings
 from common.docstore import open_db
 from rag.chain import RagChain, RagResult, get_chain
-from rag.retriever import RetrievedChunk, Retriever
+from rag.retriever import HYBRID_CANDIDATES, RRF_K, RetrievedChunk, Retriever
 
 QUESTION_TYPES = ("fact", "comparison", "temporal", "synthesis", "unanswerable")
 
@@ -150,6 +150,9 @@ class SupportsRetrieve(Protocol):
     def retrieve(self, query: str, *, k: int) -> list[RetrievedChunk]: ...
 
 
+FUSION_FIELDS = ("vector_rank", "keyword_rank", "rrf_score")
+
+
 def evaluate_retrieval(items: Sequence[EvalItem], retriever: SupportsRetrieve, k: int) -> list[dict[str, Any]]:
     """문항별 검색 결과와 지표. 답변 불가 문항은 검색 지표 없이 최고 유사도만 기록한다."""
     records = []
@@ -165,9 +168,12 @@ def evaluate_retrieval(items: Sequence[EvalItem], retriever: SupportsRetrieve, k
             "gold_doc_ids": list(item.gold_doc_ids),
             "retrieved": [{"rank": rank, "doc_id": c.doc_id, "score": round(c.score, 4),
                            "title": c.metadata.get("title", ""), "published_at": c.metadata.get("published_at", ""),
-                           "doc_type": c.metadata.get("doc_type", "")}
+                           "doc_type": c.metadata.get("doc_type", ""),
+                           # 하이브리드 검색일 때만: 의미 검색·키워드 검색 각각의 문서 순위 (없으면 None)
+                           **{key: c.metadata[key] for key in FUSION_FIELDS if key in c.metadata}}
                           for rank, c in enumerate(chunks, start=1)],
-            "top_score": round(chunks[0].score, 4) if chunks else None,
+            # 거절 임계값과 비교하는 값이므로 순위와 관계없이 가장 높은 유사도 (하이브리드는 1위가 최고 유사도가 아닐 수 있음)
+            "top_score": round(max(c.score for c in chunks), 4) if chunks else None,
             "latency_ms": round(latency_ms, 1),
         }
         if item.gold_doc_ids:
@@ -345,6 +351,7 @@ def main() -> None:
     parser.add_argument("--tag", help="실험 태그 (결과 디렉터리 이름에 사용)")
     parser.add_argument("--collection", help="평가할 Chroma 컬렉션 (기본: CHROMA_COLLECTION)")
     parser.add_argument("--k", type=int, default=5, help="검색 결과 수 (3 이상)")
+    parser.add_argument("--mode", choices=RETRIEVAL_MODES, help="검색 방식 (기본: RAG_RETRIEVAL_MODE)")
     parser.add_argument("--with-answers", action="store_true", help="답변 생성 및 채점용 CSV 출력")
     args = parser.parse_args()
     settings = get_settings()
@@ -359,8 +366,9 @@ def main() -> None:
     if not items:
         raise SystemExit("평가셋이 비어 있습니다. eval/README.md 의 절차로 작성한 뒤 실행하세요.")
     collection = args.collection or settings.chroma_collection
+    mode = args.mode or settings.rag_retrieval_mode
     try:
-        retriever = Retriever(collection)
+        retriever = Retriever(collection, mode=mode)
     except RuntimeError as exc:
         raise SystemExit(str(exc)) from exc
 
@@ -370,14 +378,15 @@ def main() -> None:
     chain: RagChain | None = None
     if args.with_answers:
         try:
-            chain = get_chain(collection)
+            chain = get_chain(collection, mode)
         except RuntimeError as exc:
             raise SystemExit(str(exc)) from exc
         print(f"답변 생성 중: {len(items)}문항 (문항당 수 초)")
         answer_rows = evaluate_answers(items, chain)
         summary["answers"] = summarize_answers(answer_rows)
     config = {
-        "tag": args.tag, "collection": collection, "k": args.k,
+        "tag": args.tag, "collection": collection, "k": args.k, "mode": mode,
+        "hybrid": {"candidates": HYBRID_CANDIDATES, "rrf_k": RRF_K} if mode == "hybrid" else None,
         "max_chunks_per_doc": retriever.max_chunks_per_doc, "collapse_same_title": retriever.collapse_same_title,
         "collection_metadata": retriever.collection_metadata,
         "eval_set_items": len(items), "git_commit": _git_commit(),

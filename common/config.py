@@ -33,6 +33,7 @@ class Settings:
     chroma_collection: str
     rag_top_k: int              # 답변 근거로 넣을 검색 결과 수
     rag_min_score: float        # 이 유사도 미만인 검색 결과는 근거로 쓰지 않는다 (모두 미만이면 거절)
+    rag_retrieval_mode: str     # vector (의미 검색) | hybrid (의미 검색 + 키워드 검색)
 
     # 크롤링
     crawl_delay_sec: float
@@ -64,6 +65,15 @@ def _parse_min_score(raw: str) -> float:
     return value
 
 
+RETRIEVAL_MODES = ("vector", "hybrid")
+
+
+def _parse_retrieval_mode(raw: str) -> str:
+    if raw not in RETRIEVAL_MODES:
+        raise ValueError(f"RAG_RETRIEVAL_MODE 는 {'/'.join(RETRIEVAL_MODES)} 중 하나여야 합니다: {raw!r}")
+    return raw
+
+
 def _parse_crawl_delay(raw: str) -> float:
     try:
         delay = float(raw)
@@ -91,6 +101,7 @@ def get_settings() -> Settings:
         chroma_collection=_env("CHROMA_COLLECTION", "docs__c500"),
         rag_top_k=_parse_top_k(_env("RAG_TOP_K", "5")),
         rag_min_score=_parse_min_score(_env("RAG_MIN_SCORE", "0.4")),
+        rag_retrieval_mode=_parse_retrieval_mode(_env("RAG_RETRIEVAL_MODE", "vector")),
         crawl_delay_sec=_parse_crawl_delay(_env("CRAWL_DELAY_SEC", "1.5")),
         crawler_user_agent=_env("CRAWLER_USER_AGENT", "mini-project3-edu-crawler/0.1"),
     )

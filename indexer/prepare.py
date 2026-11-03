@@ -1,10 +1,11 @@
-"""python -m indexer prepare — 정제 → 품질 필터 → 중복 처리 후 processed_documents 를 다시 만든다.
+"""python -m indexer prepare — 정제 → 품질 필터 → 중복 처리 후 processed_documents 와 키워드 색인을 다시 만든다.
 
     python -m indexer prepare                     # 품질 v1 + 중복 처리 v2
     python -m indexer prepare --quality none      # 품질 필터 없이 (개선 전 기준 실험)
 
 실행할 때마다 processed_documents 전체를 다시 계산한다. 설정 이름이 실험 태그가 되므로
 결과 요약(사유별 건수)을 리포트의 처리 전후 건수로 쓴다.
+키워드 색인(하이브리드 검색용)도 인덱싱 대상(kept) 문서로 함께 다시 만들어, 두 테이블이 항상 일치한다.
 """
 
 import json
@@ -15,7 +16,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from sqlite3 import Connection
 
-from common.docstore import iter_documents, open_db, replace_processed_documents
+from common.docstore import iter_documents, open_db, replace_keyword_index, replace_processed_documents
 from common.schema import DocType, ProcessedRecord
 from indexer import dedup, quality
 from indexer.parse import clean_text, extract_text
@@ -30,6 +31,7 @@ class PrepareStats:
     excluded_reasons: Counter[str] = field(default_factory=Counter)
     kept_by_type: Counter[str] = field(default_factory=Counter)
     kept_by_scope: Counter[str] = field(default_factory=Counter)
+    keyword_indexed: int = 0
 
     def summary(self) -> str:
         lines = [f"[prepare 결과] 품질={self.quality_config} 중복={self.dedup_config}",
@@ -39,6 +41,7 @@ class PrepareStats:
                   f"  유지: {self.statuses['kept']:,}"]
         lines += [f"    문서 종류 {doc_type}: {n:,}" for doc_type, n in self.kept_by_type.most_common()]
         lines += [f"    범위 {scope}: {n:,}" for scope, n in self.kept_by_scope.most_common()]
+        lines.append(f"  키워드 색인: {self.keyword_indexed:,}건")
         return "\n".join(lines)
 
 
@@ -67,7 +70,7 @@ def prepare(
     survivors: list[dedup.DedupInput] = []
     pending: dict[str, dict] = {}
 
-    progress("[1/3] 정제·품질 판정 중")
+    progress("[1/4] 정제·품질 판정 중")
     for row in iter_documents(conn):
         stats.total += 1
         if stats.total % PROGRESS_EVERY == 0:
@@ -93,8 +96,9 @@ def prepare(
         survivors.append(dedup.DedupInput(row["doc_id"], doc_type, text, row["published_at"], row["title"]))
         pending[row["doc_id"]] = dict(common, clean_text=text, content_hash=dedup.content_hash(text))
 
-    progress(f"[2/3] 중복 처리 중: 대상 {len(survivors):,}건 ({elapsed()})")
+    progress(f"[2/4] 중복 처리 중: 대상 {len(survivors):,}건 ({elapsed()})")
     results = dedup.deduplicate(survivors, dedup_config)
+    kept_docs: list[tuple[str, str, str]] = []
     for doc in survivors:
         result = results[doc.doc_id]
         status = "duplicate" if result.is_duplicate else "kept"
@@ -103,10 +107,13 @@ def prepare(
         if status == "kept":
             stats.kept_by_type[doc.doc_type.value] += 1
             stats.kept_by_scope[record.scope or "(종류상 해당 없음)"] += 1
+            kept_docs.append((doc.doc_id, doc.title, record.clean_text or ""))
 
-    progress(f"[3/3] processed_documents 기록 중: {len(records):,}건 ({elapsed()})")
+    progress(f"[3/4] processed_documents 기록 중: {len(records):,}건 ({elapsed()})")
     replace_processed_documents(conn, records)
     stats.statuses.update(r.status for r in records)
+    progress(f"[4/4] 키워드 색인 생성 중: {len(kept_docs):,}건 ({elapsed()})")
+    stats.keyword_indexed = replace_keyword_index(conn, kept_docs)
     progress(f"완료 ({elapsed()})")
     return stats
 

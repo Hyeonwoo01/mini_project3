@@ -105,3 +105,46 @@ def test_failed_write_is_rolled_back(tmp_path):
 def test_record_validation(overrides):
     with pytest.raises(ValueError):
         _record(**overrides)
+
+
+def _keyword_db(tmp_path):
+    from common.docstore import replace_keyword_index, replace_processed_documents
+    from common.schema import ProcessedRecord
+    docs = {  # doc_id: (제목, 발행일, 범위, 본문)
+        "b2024": ("중기부 2024년 예산 편성", "2023-08-29", "national", "중기부는 2024년 예산을 14조원으로 편성했다."),
+        "b2027": ("소상공인 금융지원 확대", "2026-09-01", "national", "중기부는 2027년도 예산안에 금융지원 4조2500억원을 담았다."),
+        "alley": ("서울 골목상권 매출", "2025-01-01", "seoul", "서울 골목상권 매출이 늘었다."),
+    }
+    db = tmp_path / "docs.db"
+    with open_db(db) as conn:
+        upsert_documents(conn, [DocumentRecord(doc_id=d, doc_type=DocType.NEWS, source="연합뉴스", title=t,
+                                               url=f"https://x/{d}", collected_at="2026-10-16",
+                                               collect_method=CollectMethod.PROVIDED, published_at=f"{p}T09:00:00")
+                                for d, (t, p, _, _) in docs.items()])
+        replace_processed_documents(conn, [ProcessedRecord(doc_id=d, status="kept", processed_at="2026-11-03",
+                                                           clean_text=x, canonical_doc_id=d, scope=s)
+                                           for d, (_, _, s, x) in docs.items()])
+        assert replace_keyword_index(conn, [(d, t, x) for d, (t, _, _, x) in docs.items()]) == 3
+    return db
+
+
+def test_keyword_index_ranks_year_and_institution_matches_first(tmp_path):
+    from common.docstore import search_keyword_index
+    from common.text import query_terms
+    db = _keyword_db(tmp_path)
+    with open_db(db, read_only=True) as conn:
+        hits = search_keyword_index(conn, query_terms("중기부 2027년도 예산안의 금융지원 규모는?"), limit=5)
+        assert [d for d, _ in hits][:2] == ["b2027", "b2024"] and hits[0][1] > hits[1][1]
+        assert "alley" not in {d for d, _ in hits}                       # 공통 토큰이 없으면 나오지 않음
+        assert [d for d, _ in search_keyword_index(conn, ["예산"], limit=5, date_from="2025-01-01")] == ["b2027"]
+        assert [d for d, _ in search_keyword_index(conn, ["매출"], limit=5, scopes=["seoul"])] == ["alley"]
+        assert search_keyword_index(conn, [], limit=5) == []
+
+
+def test_keyword_search_explains_missing_index(tmp_path):
+    from common.docstore import search_keyword_index
+    db = tmp_path / "docs.db"
+    with open_db(db):
+        pass
+    with open_db(db, read_only=True) as conn, pytest.raises(RuntimeError, match="indexer prepare"):
+        search_keyword_index(conn, ["예산"], limit=5)

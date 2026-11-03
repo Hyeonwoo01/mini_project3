@@ -158,11 +158,11 @@ def get_chat_model() -> BaseChatModel:
 
 
 @lru_cache(maxsize=4)
-def get_chain(collection: str | None = None) -> RagChain:
-    """설정(CHROMA_COLLECTION, RAG_TOP_K, RAG_MIN_SCORE)을 쓰는 체인. 챗봇·평가 하네스가 공유한다."""
+def get_chain(collection: str | None = None, mode: str | None = None) -> RagChain:
+    """설정(CHROMA_COLLECTION, RAG_RETRIEVAL_MODE, RAG_TOP_K, RAG_MIN_SCORE)을 쓰는 체인. 챗봇·평가 하네스가 공유한다."""
     settings = get_settings()
     return RagChain(
-        retriever=Retriever(collection or settings.chroma_collection),
+        retriever=Retriever(collection or settings.chroma_collection, mode=mode or settings.rag_retrieval_mode),
         llm=get_chat_model(),
         config=ChainConfig(top_k=settings.rag_top_k, min_score=settings.rag_min_score),
     )

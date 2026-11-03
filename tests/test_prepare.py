@@ -60,3 +60,18 @@ def test_prepare_without_quality_filter_and_rerun_replaces_rows(tmp_path):
         assert conn.execute("SELECT COUNT(*) FROM processed_documents").fetchone()[0] == 2
     assert stats.quality_config == "none"
     assert stats.statuses == {"kept": 2}
+
+
+def test_prepare_builds_keyword_index_for_kept_documents_only(tmp_path):
+    db = tmp_path / "docs.db"
+    with open_db(db) as conn:
+        upsert_documents(conn, [
+            _news("n1", "망원시장 소상공인 지원", BODY),
+            _news("n2", "망원시장 소상공인 지원 확대", BODY, published_at="2026-01-11T09:00:00"),  # 중복
+            _news("n3", "부산 전통시장 행사", OTHER_BODY),                                     # 제외
+        ])
+        stats = prepare(conn, QUALITY, DEDUP)
+        indexed = {row[0] for row in conn.execute("SELECT doc_id FROM keyword_index")}
+        kept = {row[0] for row in conn.execute("SELECT doc_id FROM processed_documents WHERE status = 'kept'")}
+    assert indexed == kept and len(indexed) == stats.keyword_indexed == 1
+    assert "키워드 색인: 1건" in stats.summary()

@@ -99,7 +99,7 @@ mini_project3/
 │   └── storage.py          #   원본 파일 저장, doc_id 생성
 ├── indexer/                # ② 인덱싱 계층 (배치)
 │   ├── __main__.py
-│   ├── prepare.py          #   정제 → 품질 필터 → 중복 처리 (processed_documents)
+│   ├── prepare.py          #   정제 → 품질 필터 → 중복 처리 (processed_documents) + 키워드 색인
 │   ├── parse.py            #   PDF·HTML 텍스트 추출, 보일러플레이트 제거
 │   ├── quality.py          #   품질 필터 (범위 밖·불량 제외, 신뢰도 플래그)
 │   ├── dedup.py            #   완전 중복·재배포본 처리 (본문 유사도)
@@ -116,6 +116,7 @@ mini_project3/
 │   ├── README.md           #   평가셋 작성 가이드
 │   ├── eval_set.jsonl
 │   ├── find_docs.py        #   정답 문서 검색
+│   ├── pool.py             #   정답 문서 보정 (검색 결과 판정 → 평가셋 반영)
 │   ├── run_eval.py
 │   └── results/            #   실험별 결과 (git 포함)
 ├── app/                    # ④ 챗봇 UI (조회 전용)
@@ -210,11 +211,17 @@ python -m indexer verify --collection docs__c500
 청킹 설정별로 같은 평가셋을 돌려 Hit@1·Hit@3·Hit@5·MRR 을 비교한다. 검색은 챗봇과 같은 `rag.retriever` 로 한다.
 
 ```bash
-python -m eval.run_eval --tag c1000 --collection docs__c1000
+python -m eval.run_eval --tag baseline-c1000 --collection docs__c1000
 ```
 
 ```bash
-python -m eval.run_eval --tag c500 --collection docs__c500
+python -m eval.run_eval --tag baseline-c500 --collection docs__c500
+```
+
+하이브리드 검색(의미 검색 + 키워드 BM25, RRF 결합)은 `--mode hybrid` 로 비교한다. 키워드 색인은 `indexer prepare` 가 만든다.
+
+```bash
+python -m eval.run_eval --tag hybrid-c500 --collection docs__c500 --mode hybrid
 ```
 
 답변까지 생성해 거절 정확도를 집계하고, 직접 채점용 `answers.csv` 를 만든다 (챗봇과 같은 `rag.chain` 사용).
@@ -237,7 +244,7 @@ pytest
 
 ## 평가셋 형식
 
-작성 절차와 문항 재료는 [`eval/README.md`](eval/README.md) 참조. 정답 문서는 `python -m eval.find_docs <검색어>` 로 찾고 `python -m eval.run_eval --check` 로 검사한다.
+작성 절차와 문항 재료는 [`eval/README.md`](eval/README.md) 참조. 정답 문서는 `python -m eval.find_docs <검색어>` 로 찾고 `python -m eval.run_eval --check` 로 검사한다. 실험 결과에서 정답 목록 밖 문서를 판정해 보정하는 절차는 같은 문서의 '정답 문서 보정' 참조.
 
 `eval/eval_set.jsonl` — 한 줄에 한 문항. `id` 는 실험 간 같은 문항을 대조하는 키이므로 바꾸지 않는다.
 
@@ -267,10 +274,12 @@ pytest
 - [ ] 직접 수집 (1차 자료)
 - [x] 청킹 설정 2개 (c500·c1000) + 제목 제외 비교 설정, 임베딩·적재·검증 (`indexer build/verify`)
 - [ ] 원본 파일(1차 자료) 파싱
-- [ ] 평가셋 작성
-- [ ] 실제 임베딩 적재 및 검증 (API 키 필요)
+- [x] 평가셋 작성 (30문항: fact 10 · temporal 6 · comparison 4 · synthesis 4 · unanswerable 6)
+- [x] 실제 임베딩 적재 및 검증 (docs__c500 50,594청크 · docs__c1000 26,816청크)
 - [x] 검색기(`rag/retriever.py`)·검색 평가 하네스(`eval/run_eval.py`)
-- [ ] 1차 측정 (평가셋 작성 후)
+- [x] 1차 측정: c500 Hit@3 0.458 · MRR 0.356 > c1000 Hit@3 0.333 · MRR 0.222 → c500 선택
+- [x] 하이브리드 검색(키워드 BM25 + 의미 검색, RRF)·정답 문서 보정 도구(`eval/pool.py`)
+- [ ] 정답 문서 보정 후 기준선·하이브리드 재측정
 - [x] RAG 체인·거절 로직(유사도 임계값 + 프롬프트)·출처 번호 표기, 답변 평가(`--with-answers`)
 - [ ] 거절 임계값(`RAG_MIN_SCORE`) 조정 (1차 측정 후)
 - [ ] Streamlit 챗 UI

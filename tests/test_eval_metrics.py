@@ -199,3 +199,18 @@ def test_load_eval_set_accepts_bom_and_crlf(tmp_path):
     path = tmp_path / "eval_set.jsonl"
     path.write_bytes((json.dumps(row, ensure_ascii=False) + "\r\n").encode("utf-8-sig"))
     assert [item.id for item in load_eval_set(path)] == ["f001"]
+
+
+def test_top_score_is_highest_similarity_regardless_of_rank():
+    from eval.run_eval import EvalItem, evaluate_retrieval
+    from rag.retriever import RetrievedChunk
+
+    class _Unsorted:  # 하이브리드 검색은 1위가 최고 유사도가 아닐 수 있다
+        def retrieve(self, query, *, k):
+            return [RetrievedChunk("a#000", "a", "", 0.55, {"title": "a", "keyword_rank": 1, "vector_rank": None}),
+                    RetrievedChunk("b#000", "b", "", 0.71, {"title": "b", "keyword_rank": None, "vector_rank": 1})]
+
+    item = EvalItem(id="f001", q="질문", type="fact", gold_doc_ids=("b",), answer_key="답")
+    record = evaluate_retrieval([item], _Unsorted(), k=3)[0]
+    assert record["top_score"] == 0.71 and record["gold_rank"] == 2
+    assert record["retrieved"][0]["keyword_rank"] == 1 and record["retrieved"][0]["vector_rank"] is None
