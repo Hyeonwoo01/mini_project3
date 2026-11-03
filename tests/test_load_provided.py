@@ -68,6 +68,20 @@ def test_load_files_stats_and_records(files):
     assert doc_b["extra"]["source_missing"] is True
 
 
+def test_unicode_line_separators_stay_inside_field(tmp_path):
+    # 제공 CSV 일부에 U+2028(LS)·U+2029(PS)가 들어 있다. 행이 쪼개지지 않고 본문에 그대로 남아야 한다.
+    path = tmp_path / BUNDLE
+    _write_csv(path, [
+        _row("기사 A", "https://n.news.naver.com/a", body="첫 문장 둘째 문장 셋째"),
+        _row("기사 B", "https://n.news.naver.com/b"),
+    ])
+    with open_db(tmp_path / "docs.db") as conn:
+        stats = load_files([path], conn)
+        body = conn.execute("SELECT raw_text FROM documents WHERE title = '기사 A'").fetchone()[0]
+    assert stats.rows_read[BUNDLE] == 2 and stats.loaded == 2
+    assert body == "첫 문장 둘째 문장 셋째"
+
+
 def test_reload_is_idempotent(files):
     tmp_path, paths = files
     for _ in range(2):
