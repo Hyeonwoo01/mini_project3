@@ -15,7 +15,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m collector", description="① 수집 계층")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("provided", help="제공 데이터(뉴스) 적재 및 선별")
+    provided = sub.add_parser("provided", help="제공 데이터(뉴스 CSV) 적재")
+    provided.add_argument(
+        "--file", action="append", help="적재할 CSV 경로 (생략 시 data/provided/ 에서 지정 파일 자동 탐색)"
+    )
 
     korea_kr = sub.add_parser("korea-kr", help="대한민국 정책브리핑 보도자료 수집")
     korea_kr.add_argument("--query", action="append", required=True, help="검색어 (반복 지정 가능)")
@@ -34,7 +37,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     args = build_parser().parse_args()
     if args.command == "provided":
-        load_provided.run()
+        load_provided.run(files=args.file)
     elif args.command == "korea-kr":
         crawl_korea_kr.run(queries=args.query, max_pages=args.max_pages)
     elif args.command == "blog":
