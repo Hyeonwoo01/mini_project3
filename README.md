@@ -247,6 +247,12 @@ python -m eval.grade summary eval/results/<실험>/answers.csv
 python -m eval.grade carry eval/results/<이전 실험>/answers.csv eval/results/<새 실험>/answers.csv
 ```
 
+답변 근거로 넣는 문서당 청크 수는 `--context-chunks` 로 바꿔 비교한다 (기본 `RAG_CONTEXT_CHUNKS=1`). 검색 순위는 그대로이고 같은 기사의 세부 청크만 더 넣는다.
+
+```bash
+python -m eval.run_eval --tag hybrid-c500-ctx2-answers --with-answers --context-chunks 2
+```
+
 **④ 챗봇** — 인덱싱을 다시 실행하지 않고 단독으로 구동된다
 
 ```bash

@@ -98,3 +98,30 @@ def test_helpers_and_config_validation():
         ChainConfig(top_k=0)
     with pytest.raises(ValueError):
         ChainConfig(min_score=1.0)
+
+
+class ExpandingRetriever(FakeRetriever):
+    def __init__(self, chunks):
+        super().__init__(chunks)
+        self.expanded = []
+
+    def expand_context(self, query, chunks, *, per_doc, filters=None):
+        self.expanded.append(([c.doc_id for c in chunks], per_doc))
+        return [RetrievedChunk(c.chunk_id, c.doc_id, c.text + "\n추가 청크", c.score, c.metadata) for c in chunks]
+
+
+def test_context_chunks_expand_only_documents_above_threshold():
+    retriever = ExpandingRetriever([_chunk("a", 0.7), _chunk("b", 0.3)])
+    chain = RagChain(retriever, FakeListChatModel(responses=["답 [1]"]),
+                     ChainConfig(top_k=5, min_score=0.5, context_chunks=2))
+    result = chain.answer("질문")
+    assert retriever.expanded == [(["a"], 2)]                    # 임계값 미만 b 는 확장하지 않음
+    assert result.chunks[0].text.endswith("추가 청크")
+    with pytest.raises(ValueError):
+        ChainConfig(context_chunks=4)
+
+
+def test_context_chunks_default_does_not_expand():
+    retriever = ExpandingRetriever([_chunk("a", 0.7)])
+    RagChain(retriever, FakeListChatModel(responses=["답 [1]"]), ChainConfig(top_k=5, min_score=0.5)).answer("질문")
+    assert retriever.expanded == []

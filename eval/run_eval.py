@@ -266,6 +266,11 @@ ANSWER_COLUMNS = ["id", "type", "q", "answer_key", "answer", "refused", "retriev
                   "gold_doc_ids", "cited_gold_auto", "grade", "citation_ok", "note"]
 
 
+def _chunk_count(chunk: RetrievedChunk) -> str:
+    ids = chunk.metadata.get("context_chunk_ids") or []
+    return f", 청크 {len(ids)}개" if len(ids) > 1 else ""
+
+
 def evaluate_answers(items: Sequence[EvalItem], chain: SupportsAnswer,
                      progress=lambda message: None) -> list[dict[str, Any]]:
     """문항별 답변. grade·citation_ok 는 비워 두고 직접 채점한다."""
@@ -286,7 +291,7 @@ def evaluate_answers(items: Sequence[EvalItem], chain: SupportsAnswer,
             "cited": " ".join(f"[{n}]" for n in result.cited),
             "sources": "\n".join(
                 f"[{i}] {c.metadata.get('title', '')} ({str(c.metadata.get('published_at', ''))[:10]}, {c.doc_id}, "
-                f"유사도 {c.score:.3f})" for i, c in enumerate(result.chunks, start=1)),
+                f"유사도 {c.score:.3f}{_chunk_count(c)})" for i, c in enumerate(result.chunks, start=1)),
             "gold_doc_ids": " ".join(item.gold_doc_ids),
             # 인용한 근거 중 정답 문서가 있는지 (자동 참고값. 최종 출처 정확성은 직접 판단한다)
             "cited_gold_auto": bool(cited_docs & set(item.gold_doc_ids)) if item.gold_doc_ids else None,
@@ -401,6 +406,8 @@ def main() -> None:
     parser.add_argument("--k", type=int, default=5, help="검색 결과 수 (3 이상)")
     parser.add_argument("--mode", choices=RETRIEVAL_MODES, help="검색 방식 (기본: RAG_RETRIEVAL_MODE)")
     parser.add_argument("--with-answers", action="store_true", help="답변 생성 및 채점용 CSV 출력")
+    parser.add_argument("--context-chunks", type=int, choices=(1, 2, 3),
+                        help="답변 근거로 넣는 문서당 청크 수 (기본: RAG_CONTEXT_CHUNKS)")
     parser.add_argument("--rescore", type=Path, help="저장된 검색 결과(eval/results/...)를 현재 정답 목록으로 다시 채점")
     args = parser.parse_args()
     settings = get_settings()
@@ -430,7 +437,7 @@ def main() -> None:
     chain: RagChain | None = None
     if args.with_answers:
         try:
-            chain = get_chain(collection, mode)
+            chain = get_chain(collection, mode, args.context_chunks)
         except RuntimeError as exc:
             raise SystemExit(str(exc)) from exc
         print(f"답변 생성 중: {len(items)}문항 (문항당 수 초)")
@@ -443,7 +450,7 @@ def main() -> None:
         "collection_metadata": retriever.collection_metadata,
         "eval_set_items": len(items), "git_commit": _git_commit(),
         "chain": {"top_k": chain.config.top_k, "min_score": chain.config.min_score,
-                  "chat_model": settings.chat_model} if chain else None,
+                  "context_chunks": chain.config.context_chunks, "chat_model": settings.chat_model} if chain else None,
         "evaluated_at": datetime.now().isoformat(timespec="seconds"),
     }
     out = save_results(records, summary, config, args.tag, settings.eval_results_dir)

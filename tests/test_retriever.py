@@ -7,7 +7,7 @@ from common.docstore import open_db, replace_processed_documents, upsert_documen
 from common.schema import CollectMethod, DocType, DocumentRecord, ProcessedRecord
 from indexer.chunk import get_chunk_config
 from indexer.embed import build_collection
-from rag.retriever import Retriever, SearchFilters
+from rag.retriever import RetrievedChunk, Retriever, SearchFilters
 
 SENTENCE = "소상공인 지원 정책이 확대된다. 골목상권 매출 회복이 기대된다. "
 DOCS = {  # doc_id: (발행일, 범위, 반복 횟수 → 청크 수)
@@ -155,3 +155,34 @@ def test_retrieval_mode_validation(hybrid_env):
     db, chroma_dir = hybrid_env
     with pytest.raises(ValueError):
         Retriever("docs__hybrid", chroma_dir=chroma_dir, embeddings=FAKE, embedding_model_name="fake", mode="bm25")
+
+
+def _piece(index, body, title="제목"):
+    return RetrievedChunk(chunk_id=f"d#{index:03d}", doc_id="d", text=f"{title}\n\n{body}", score=0.6,
+                          metadata={"title": title, "chunk_index": index, "doc_id": "d"})
+
+
+def test_merge_chunk_texts_removes_overlap_and_repeated_title():
+    from rag.retriever import merge_chunk_texts
+    adjacent = merge_chunk_texts([_piece(0, "첫 문장이다. 두 청크에 겹치는 문장이다."),
+                                  _piece(1, "두 청크에 겹치는 문장이다. 다음 문장이다.")])
+    assert adjacent == "제목\n\n첫 문장이다. 두 청크에 겹치는 문장이다. 다음 문장이다."
+    coincidence = merge_chunk_texts([_piece(0, "앞 문장이다."), _piece(1, "다음 문장이다.")])
+    assert coincidence == "제목\n\n앞 문장이다. 다음 문장이다."      # '다' 한 글자 일치는 지우지 않음
+    apart = merge_chunk_texts([_piece(0, "앞부분."), _piece(3, "뒷부분.")])
+    assert apart == "제목\n\n앞부분.\n…\n뒷부분."
+    assert merge_chunk_texts([_piece(2, "하나뿐.")]) == "제목\n\n하나뿐."
+
+
+def test_expand_context_adds_second_chunk_of_same_document(chroma):
+    retriever = _retriever(chroma)
+    long_chunk = next(r for r in retriever.retrieve("골목상권 매출", k=10) if r.doc_id == "long")
+    expanded = retriever.expand_context("골목상권 매출", [long_chunk], per_doc=2)[0]
+    ids = expanded.metadata["context_chunk_ids"]
+    assert len(ids) == 2 and long_chunk.chunk_id in ids and all(i.startswith("long#") for i in ids)
+    assert ids == sorted(ids)                                     # 기사 순서대로
+    assert expanded.text.count(TITLES.get("long", "long 기사")) == 1   # 제목 머리말은 한 번만
+    assert expanded.score == long_chunk.score and expanded.chunk_id == long_chunk.chunk_id
+    assert retriever.expand_context("골목상권 매출", [long_chunk], per_doc=1) == [long_chunk]
+    single = next(r for r in retriever.retrieve("골목상권 매출", k=10) if r.doc_id == "old")
+    assert len(retriever.expand_context("q", [single], per_doc=3)[0].metadata["context_chunk_ids"]) >= 1

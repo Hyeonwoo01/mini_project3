@@ -45,9 +45,10 @@ _CITATION = re.compile(r"\[(\d{1,2})\]")
 class ChainConfig:
     top_k: int = 5
     min_score: float = 0.5
+    context_chunks: int = 1   # 임계값을 통과한 문서마다 근거로 넣는 청크 수
 
     def __post_init__(self) -> None:
-        if self.top_k < 1 or not 0.0 <= self.min_score < 1.0:
+        if self.top_k < 1 or not 0.0 <= self.min_score < 1.0 or not 1 <= self.context_chunks <= 3:
             raise ValueError(f"잘못된 체인 설정: {self}")
 
 
@@ -119,9 +120,14 @@ class RagChain:
     def retrieve_context(
         self, question: str, history: ChatHistory = (), *, filters: SearchFilters | None = None
     ) -> list[RetrievedChunk]:
-        """검색 후 유사도 임계값 미만을 뺀다. 빈 리스트는 근거 없음(거절)을 뜻한다."""
-        chunks = self.retriever.retrieve(retrieval_query(question, history), k=self.config.top_k, filters=filters)
-        return [c for c in chunks if c.score >= self.config.min_score]
+        """검색 후 유사도 임계값 미만을 뺀다. 빈 리스트는 근거 없음(거절)을 뜻한다.
+        context_chunks > 1 이면 남은 문서마다 질문과 유사한 청크를 더 모아 근거를 넓힌다."""
+        query = retrieval_query(question, history)
+        chunks = self.retriever.retrieve(query, k=self.config.top_k, filters=filters)
+        kept = [c for c in chunks if c.score >= self.config.min_score]
+        if kept and self.config.context_chunks > 1:
+            kept = self.retriever.expand_context(query, kept, per_doc=self.config.context_chunks, filters=filters)
+        return kept
 
     def stream_answer(self, question: str, chunks: list[RetrievedChunk], history: ChatHistory = ()) -> Iterator[str]:
         """chunks 가 비어 있으면 LLM 을 호출하지 않고 REFUSAL_MESSAGE 를 내보낸다."""
@@ -158,13 +164,15 @@ def get_chat_model() -> BaseChatModel:
 
 
 @lru_cache(maxsize=4)
-def get_chain(collection: str | None = None, mode: str | None = None) -> RagChain:
-    """설정(CHROMA_COLLECTION, RAG_RETRIEVAL_MODE, RAG_TOP_K, RAG_MIN_SCORE)을 쓰는 체인. 챗봇·평가 하네스가 공유한다."""
+def get_chain(collection: str | None = None, mode: str | None = None, context_chunks: int | None = None) -> RagChain:
+    """설정(CHROMA_COLLECTION, RAG_RETRIEVAL_MODE, RAG_TOP_K, RAG_MIN_SCORE, RAG_CONTEXT_CHUNKS)을 쓰는 체인.
+    챗봇·평가 하네스가 공유한다. 인자를 주면 그 값이 설정보다 우선한다 (평가 실험용)."""
     settings = get_settings()
     return RagChain(
         retriever=Retriever(collection or settings.chroma_collection, mode=mode or settings.rag_retrieval_mode),
         llm=get_chat_model(),
-        config=ChainConfig(top_k=settings.rag_top_k, min_score=settings.rag_min_score),
+        config=ChainConfig(top_k=settings.rag_top_k, min_score=settings.rag_min_score,
+                           context_chunks=context_chunks or settings.rag_context_chunks),
     )
 
 

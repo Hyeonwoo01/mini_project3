@@ -34,6 +34,7 @@ class Settings:
     rag_top_k: int              # 답변 근거로 넣을 검색 결과 수
     rag_min_score: float        # 이 유사도 미만인 검색 결과는 근거로 쓰지 않는다 (모두 미만이면 거절)
     rag_retrieval_mode: str     # vector (의미 검색) | hybrid (의미 검색 + 키워드 검색)
+    rag_context_chunks: int     # 답변 근거로 넣는 문서당 청크 수 (1~3)
 
     # 크롤링
     crawl_delay_sec: float
@@ -74,6 +75,16 @@ def _parse_retrieval_mode(raw: str) -> str:
     return raw
 
 
+def _parse_context_chunks(raw: str) -> int:
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ValueError(f"RAG_CONTEXT_CHUNKS 는 정수여야 합니다: {raw!r}") from exc
+    if not 1 <= value <= 3:
+        raise ValueError(f"RAG_CONTEXT_CHUNKS 는 1~3 이어야 합니다: {value}")
+    return value
+
+
 def _parse_crawl_delay(raw: str) -> float:
     try:
         delay = float(raw)
@@ -104,6 +115,7 @@ def get_settings() -> Settings:
         # 임계값 0.5 는 답변 가능 문항 1위 유사도 최저(0.570)보다 낮고 답변 불가 2문항을 검색 단계에서 거절한다.
         rag_min_score=_parse_min_score(_env("RAG_MIN_SCORE", "0.5")),
         rag_retrieval_mode=_parse_retrieval_mode(_env("RAG_RETRIEVAL_MODE", "hybrid")),
+        rag_context_chunks=_parse_context_chunks(_env("RAG_CONTEXT_CHUNKS", "1")),
         crawl_delay_sec=_parse_crawl_delay(_env("CRAWL_DELAY_SEC", "1.5")),
         crawler_user_agent=_env("CRAWLER_USER_AGENT", "mini-project3-edu-crawler/0.1"),
     )

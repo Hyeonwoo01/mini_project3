@@ -20,6 +20,12 @@
 - 반환 청크의 score 는 의미 검색과 같은 코사인 유사도다 (체인의 거절 임계값이 같은 의미를 갖도록).
   키워드 검색에서만 찾은 문서는 질문 벡터로 그 문서의 가장 유사한 청크를 골라 붙인다
 - 문서 단위 결합이므로 문서당 청크 1개(max_chunks_per_doc=1)일 때만 쓴다
+
+근거 확장 (expand_context)
+- 검색 순위는 문서당 가장 유사한 청크 1개로 정하지만, 답변에 필요한 세부 내용이 같은 기사의 다른 청크에
+  있는 경우가 있다 (답변 채점: f006 은 예산 총액 청크만 들어가 금융지원 구성 청크를 못 봄). 체인이 임계값을
+  통과한 문서마다 질문과 유사한 청크를 per_doc 개까지 모아 기사 순서대로 이어 붙인 하나의 근거로 만든다
+- 점수·순위·출처 번호는 그대로다 (문서 단위). 이어 붙인 청크 id 는 metadata['context_chunk_ids']
 """
 
 import re
@@ -43,6 +49,9 @@ from common.text import query_terms
 FETCH_MULTIPLIER = 4  # 문서당 청크 제한으로 걸러질 것을 감안한 후보 배수
 HYBRID_CANDIDATES = 50  # 하이브리드: 의미 검색·키워드 검색에서 각각 가져오는 문서 후보 수
 RRF_K = 60  # RRF 상수. 원 논문(Cormack et al., 2009)의 기본값
+MAX_OVERLAP_CHARS = 300  # 인접 청크를 이을 때 찾는 겹침 길이 상한 (청킹 overlap 은 100~150자)
+MIN_OVERLAP_CHARS = 10   # 이보다 짧은 일치는 우연으로 보고 지우지 않는다 ('…다.' + '다음…' 같은 경우)
+_EMBEDDING_CACHE_SIZE = 128
 _NON_WORD = re.compile(r"[\W_]+")
 
 
@@ -122,6 +131,7 @@ class Retriever:
         self.mode = mode
         self._db_path = db_path  # None 이면 설정의 docs_db_path (키워드 검색용, 읽기 전용)
         self._embeddings = embeddings or get_embedding_model()
+        self._embedding_cache: dict[str, list[float]] = {}  # 같은 질문의 검색·근거 확장에서 임베딩 재사용
         self._store = Chroma(
             collection_name=collection,
             embedding_function=self._embeddings,
@@ -135,13 +145,40 @@ class Retriever:
         if not query.strip():
             return []
         where = filters.to_where() if filters else None
-        embedding = self._embeddings.embed_query(query)
+        embedding = self._query_embedding(query)
         if self.mode == "vector":
             fetch = k * FETCH_MULTIPLIER * self.max_chunks_per_doc
             return self._vector_chunks(embedding, fetch=fetch, where=where, limit=k)
         vector_docs = self._vector_chunks(embedding, fetch=HYBRID_CANDIDATES * FETCH_MULTIPLIER, where=where,
                                           limit=HYBRID_CANDIDATES)
         return self._fuse(query, embedding, vector_docs, k=k, where=where, filters=filters)
+
+    def _query_embedding(self, query: str) -> list[float]:
+        if query not in self._embedding_cache:
+            if len(self._embedding_cache) >= _EMBEDDING_CACHE_SIZE:
+                self._embedding_cache.pop(next(iter(self._embedding_cache)))
+            self._embedding_cache[query] = self._embeddings.embed_query(query)
+        return self._embedding_cache[query]
+
+    def expand_context(self, query: str, chunks: list[RetrievedChunk], *, per_doc: int,
+                       filters: SearchFilters | None = None) -> list[RetrievedChunk]:
+        """각 문서의 근거를 질문과 유사한 청크 per_doc 개까지로 넓힌다 (기사 순서대로 이어 붙임)."""
+        if per_doc < 1:
+            raise ValueError("per_doc 는 1 이상이어야 합니다")
+        if per_doc == 1 or not chunks:
+            return list(chunks)
+        embedding = self._query_embedding(query)
+        where = filters.to_where() if filters else None
+        expanded = []
+        for chunk in chunks:
+            doc_filter: dict[str, Any] = {"doc_id": chunk.doc_id}
+            hits = self._store.similarity_search_by_vector_with_relevance_scores(
+                embedding, k=per_doc, filter={"$and": [doc_filter, where]} if where else doc_filter)
+            others = [c for c in (_to_chunk(d, dist) for d, dist in hits) if c.chunk_id != chunk.chunk_id]
+            pieces = sorted([chunk, *others[:per_doc - 1]], key=lambda c: c.metadata.get("chunk_index", 0))
+            expanded.append(replace(chunk, text=merge_chunk_texts(pieces), metadata={
+                **chunk.metadata, "context_chunk_ids": [c.chunk_id for c in pieces]}))
+        return expanded
 
     def _vector_chunks(self, embedding: list[float], *, fetch: int, where: dict[str, Any] | None,
                        limit: int) -> list[RetrievedChunk]:
@@ -209,6 +246,31 @@ class Retriever:
             if len(results) == k:
                 break
         return results
+
+
+def _overlap(left: str, right: str) -> int:
+    """left 의 끝과 right 의 시작이 겹치는 가장 긴 길이. MIN_OVERLAP_CHARS 미만이면 0."""
+    for size in range(min(len(left), len(right), MAX_OVERLAP_CHARS), MIN_OVERLAP_CHARS - 1, -1):
+        if left.endswith(right[:size]):
+            return size
+    return 0
+
+
+def merge_chunk_texts(pieces: list[RetrievedChunk]) -> str:
+    """같은 문서의 청크들을 기사 순서대로 잇는다. 반복되는 제목 머리말과 인접 청크의 겹침은 한 번만 남기고,
+    떨어진 청크 사이에는 '…' 를 넣는다. pieces 는 chunk_index 순이어야 한다."""
+    title = str(pieces[0].metadata.get("title", ""))
+    prefix = f"{title}\n\n" if title else ""
+    has_prefix = bool(prefix) and pieces[0].text.startswith(prefix)
+    bodies = [p.text[len(prefix):] if has_prefix and p.text.startswith(prefix) else p.text for p in pieces]
+    merged = bodies[0]
+    for previous, piece, body in zip(pieces, pieces[1:], bodies[1:]):
+        if piece.metadata.get("chunk_index") == previous.metadata.get("chunk_index", -2) + 1:
+            overlap = _overlap(merged, body)
+            merged += body[overlap:] if overlap else " " + body
+        else:
+            merged += "\n…\n" + body
+    return (prefix if has_prefix else "") + merged
 
 
 def _to_chunk(document, distance: float) -> RetrievedChunk:
