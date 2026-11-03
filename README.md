@@ -117,6 +117,7 @@ mini_project3/
 │   ├── eval_set.jsonl
 │   ├── find_docs.py        #   정답 문서 검색
 │   ├── pool.py             #   정답 문서 보정 (검색 결과 판정 → 평가셋 반영)
+│   ├── grade.py            #   답변 직접 채점 집계 · 이전 채점 옮기기
 │   ├── run_eval.py
 │   └── results/            #   실험별 결과 (git 포함)
 ├── app/                    # ④ 챗봇 UI (조회 전용)
@@ -227,7 +228,17 @@ python -m eval.run_eval --tag hybrid-c500 --collection docs__c500 --mode hybrid
 답변까지 생성해 거절 정확도를 집계하고, 직접 채점용 `answers.csv` 를 만든다 (챗봇과 같은 `rag.chain` 사용).
 
 ```bash
-python -m eval.run_eval --tag c1000-answers --collection docs__c1000 --with-answers
+python -m eval.run_eval --tag hybrid-c500-answers --with-answers
+```
+
+`answers.csv` 의 grade(정확/부분/오답)·citation_ok(Y/N/-)·note 를 직접 채점한 뒤 집계한다. 다음 실험에서는 답변이 바뀌지 않은 문항의 채점을 옮겨 온다.
+
+```bash
+python -m eval.grade summary eval/results/<실험>/answers.csv
+```
+
+```bash
+python -m eval.grade carry eval/results/<이전 실험>/answers.csv eval/results/<새 실험>/answers.csv
 ```
 
 **④ 챗봇** — 인덱싱을 다시 실행하지 않고 단독으로 구동된다
