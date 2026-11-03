@@ -9,7 +9,8 @@
 - 컬렉션 메타데이터에 임베딩 모델과 청킹 설정을 기록한다. retriever 가 모델 일치 여부를 확인한다
 - 거리 계산은 코사인. 유사도 = 1 - 거리
 - 이어서 적재: 청크 id 가 결정적(<doc_id>#<순번>)이므로 중단 후 같은 명령을 다시 실행하면 이미 적재된
-  청크는 건너뛴다 (공용 API 키의 호출 한도로 중간에 실패할 수 있다).
+  청크는 건너뛴다 (공용 API 키의 호출 한도로 중간에 실패할 수 있다). 같은 id 라도 청크 내용이 바뀌었으면
+  (청킹 규칙 변경 등) 다시 임베딩해 덮어쓴다.
 - 지식베이스가 바뀌어(indexer prepare 재실행) 더 이상 없는 청크는 컬렉션에서 지운다.
 """
 
@@ -42,6 +43,7 @@ class BuildStats:
     chunks: int = 0
     skipped_empty: int = 0
     added: int = 0
+    updated: int = 0
     already_present: int = 0
     removed_stale: int = 0
     body_lengths: list[int] = field(default_factory=list)
@@ -56,7 +58,8 @@ class BuildStats:
             short = sum(length < 100 for length in self.body_lengths)
             lines.append(f"  100자 미만 청크: {short:,}개 ({short / len(self.body_lengths):.1%})")
         lines.append(f"  빈 청크로 제외: {self.skipped_empty:,}개")
-        lines.append(f"  새로 적재 {self.added:,}개 · 이미 있음 {self.already_present:,}개 · 오래된 청크 삭제 {self.removed_stale:,}개")
+        lines.append(f"  새로 적재 {self.added:,}개 · 내용 변경으로 갱신 {self.updated:,}개 · 이미 있음 {self.already_present:,}개 "
+                     f"· 오래된 청크 삭제 {self.removed_stale:,}개")
         return "\n".join(lines)
 
 
@@ -144,20 +147,23 @@ def build_collection(
     started = time.monotonic()
     batches = [chunks[i:i + ADD_BATCH] for i in range(0, len(chunks), ADD_BATCH)]
     for number, batch in enumerate(batches, start=1):
-        existing = set(col.get(ids=[c.chunk_id for c in batch], include=[])["ids"])
-        todo = [c for c in batch if c.chunk_id not in existing]
+        found = col.get(ids=[c.chunk_id for c in batch], include=["documents"])
+        stored = dict(zip(found["ids"], found["documents"]))
+        todo = [c for c in batch if stored.get(c.chunk_id) != c.text]
+        changed = sum(c.chunk_id in stored for c in todo)
         stats.already_present += len(batch) - len(todo)
         if todo:
             try:
                 vectors = embeddings.embed_documents([c.text for c in todo])
             except Exception as exc:  # API 오류(호출 한도 등)를 이어서 적재 안내와 함께 알린다
                 raise SystemExit(
-                    f"임베딩 중단 ({stats.added + stats.already_present:,}/{len(chunks):,}개 처리): {exc}\n"
+                    f"임베딩 중단 ({stats.added + stats.updated + stats.already_present:,}/{len(chunks):,}개 처리): {exc}\n"
                     "같은 명령을 다시 실행하면 이미 적재된 청크는 건너뛰고 이어서 진행합니다."
                 ) from exc
-            col.add(ids=[c.chunk_id for c in todo], documents=[c.text for c in todo],
-                    embeddings=vectors, metadatas=[c.metadata for c in todo])
-            stats.added += len(todo)
+            col.upsert(ids=[c.chunk_id for c in todo], documents=[c.text for c in todo],
+                       embeddings=vectors, metadatas=[c.metadata for c in todo])
+            stats.updated += changed
+            stats.added += len(todo) - changed
         if number % PROGRESS_EVERY_BATCHES == 0 or number == len(batches):
             done = number * ADD_BATCH if number < len(batches) else len(chunks)
             elapsed = time.monotonic() - started

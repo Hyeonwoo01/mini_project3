@@ -128,3 +128,13 @@ def test_chunk_document_has_no_short_tail():
     assert len(chunks) == 2
     assert all(len(c.body) >= 100 for c in chunks)
     assert chunks[-1].body.endswith("홍길동 기자.")
+
+
+def test_rebuild_after_chunk_text_change_updates_only_changed(env):
+    db, chroma, kwargs = env
+    build_collection(get_chunk_config("c500"), "docs__c500", **kwargs)
+    # 같은 청크 id 의 내용이 바뀌는 경우 (청킹 규칙 변경 등): 제목 포함 → 제외 설정으로 같은 컬렉션에 다시 적재
+    stats = build_collection(get_chunk_config("c500-notitle"), "docs__c500", **kwargs)
+    assert (stats.added, stats.updated, stats.already_present) == (0, 3, 0)
+    again = build_collection(get_chunk_config("c500-notitle"), "docs__c500", **kwargs)
+    assert (again.added, again.updated, again.already_present) == (0, 0, 3)
