@@ -20,6 +20,11 @@ from common.schema import SOURCE_TIER, DocType
 # 문단 → 줄 → 문장 → 쉼표 → 공백 순으로 자를 곳을 찾는다. 문장부호는 앞 문장에 붙여 둔다.
 SEPARATORS = ["\n\n", "\n", ". ", "? ", "! ", ", ", " ", ""]
 
+# 마지막 조각이 이보다 짧으면 앞 청크에 합친다. 분할 끝에 남은 '기자.' 같은 9~99자 조각은
+# 검색에 걸려도 근거가 되지 못한다 (c1000 미리보기: 100자 미만 71개, 최소 9자).
+# 품질 필터의 최소 본문 길이(100자)와 맞춘다.
+MIN_CHUNK_CHARS = 100
+
 
 @dataclass(frozen=True)
 class ChunkConfig:
@@ -80,6 +85,19 @@ class Chunk:
     metadata: dict[str, str | int]
 
 
+def _merge_short_tail(bodies: list[str], min_chars: int = MIN_CHUNK_CHARS) -> list[str]:
+    """마지막 조각이 짧으면 앞 조각에 붙인다. 청크 겹침으로 이미 들어 있는 부분은 다시 붙이지 않는다."""
+    if len(bodies) < 2 or len(bodies[-1]) >= min_chars:
+        return bodies
+    previous, tail = bodies[-2], bodies[-1]
+    if tail in previous:
+        return bodies[:-1]
+    # 5자 미만 일치는 우연일 수 있어 겹침으로 보지 않는다.
+    overlap = next((n for n in range(min(len(previous), len(tail)), 4, -1) if previous.endswith(tail[:n])), 0)
+    merged = previous + tail[overlap:] if overlap else f"{previous} {tail}"
+    return [*bodies[:-2], merged]
+
+
 def _published_ymd(published_at: str | None) -> int:
     """Chroma 의 범위 필터는 숫자에만 동작하므로 YYYYMMDD 정수로 저장한다. 미상은 0."""
     if not published_at or len(published_at) < 10:
@@ -94,7 +112,7 @@ def chunk_document(doc: ChunkSource, config: ChunkConfig) -> list[Chunk]:
         chunk_size=size, chunk_overlap=overlap, separators=SEPARATORS, keep_separator="end",
         strip_whitespace=True,
     )
-    bodies = [b for b in splitter.split_text(doc.text) if b.strip()]
+    bodies = _merge_short_tail([b for b in splitter.split_text(doc.text) if b.strip()])
     chunks = []
     for index, body in enumerate(bodies):
         chunk_id = f"{doc.doc_id}#{index:03d}"

@@ -109,3 +109,22 @@ def test_verify_missing_collection(env):
     db, chroma, kwargs = env
     with pytest.raises(SystemExit):
         verify_collection("docs__none", queries=(), chroma_dir=chroma, db_path=db)
+
+
+def test_short_tail_is_merged_without_duplicating_overlap():
+    from indexer.chunk import _merge_short_tail
+    head = "가" * 900 + " 공통 겹침 문장."
+    assert _merge_short_tail([head, "공통 겹침 문장. 홍길동 기자."]) == [head + " 홍길동 기자."]
+    assert _merge_short_tail([head, "홍길동 기자."]) == [head + " 홍길동 기자."]
+    assert _merge_short_tail([head, "겹침 문장."]) == [head]                 # 이미 앞 청크에 들어 있음
+    long_tail = "나" * 150
+    assert _merge_short_tail([head, long_tail]) == [head, long_tail]        # 충분히 길면 그대로
+    assert _merge_short_tail(["짧은 단일 청크"]) == ["짧은 단일 청크"]
+
+
+def test_chunk_document_has_no_short_tail():
+    text = ("소상공인 지원 문장입니다. " * 70) + "\n\n홍길동 기자."   # 분할하면 [989, 209, 7] 자
+    chunks = chunk_document(_source(text=text), get_chunk_config("c1000"))
+    assert len(chunks) == 2
+    assert all(len(c.body) >= 100 for c in chunks)
+    assert chunks[-1].body.endswith("홍길동 기자.")
