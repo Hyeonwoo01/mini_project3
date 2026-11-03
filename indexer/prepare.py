@@ -1,6 +1,6 @@
 """python -m indexer prepare — 정제 → 품질 필터 → 중복 처리 후 processed_documents 를 다시 만든다.
 
-    python -m indexer prepare                     # 품질 v1 + 중복 처리 v1
+    python -m indexer prepare                     # 품질 v1 + 중복 처리 v2
     python -m indexer prepare --quality none      # 품질 필터 없이 (개선 전 기준 실험)
 
 실행할 때마다 processed_documents 전체를 다시 계산한다. 설정 이름이 실험 태그가 되므로

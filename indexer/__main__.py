@@ -19,7 +19,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     prep = sub.add_parser("prepare", help="정제·품질 필터·중복 처리")
     prep.add_argument("--quality", default="v1", help="indexer/quality.py 의 설정 이름, 또는 none (필터 없음)")
-    prep.add_argument("--dedup", default="v1", help="indexer/dedup.py 의 설정 이름")
+    prep.add_argument("--dedup", default="v2", help="indexer/dedup.py 의 설정 이름 (v1: 본문 유사도만)")
 
     build = sub.add_parser("build", help="청킹·임베딩 후 Chroma 적재")
     build.add_argument("--chunk-config", required=True, help="indexer/chunk.py 의 CHUNK_CONFIGS 키")

@@ -62,8 +62,11 @@ class DedupConfig:
 DEDUP_CONFIGS: dict[str, DedupConfig] = {
     # 본문이 거의 같은 재배포본만 묶는다 (EDA 12번: 0.8 이상 925건 제거)
     "v1": DedupConfig(name="v1", similarity_threshold=0.8),
-    # 같은 보도자료를 다시 쓴 기사까지 묶는다. title_threshold 는 EDA 13번 표본으로 확정한다.
-    "v2": DedupConfig(name="v2", similarity_threshold=0.8, title_threshold=0.5, body_floor=0.3),
+    # 같은 보도자료를 다시 쓴 기사까지 묶는다 (EDA 13번, 18,286건 → 14,476건).
+    # 제목 유사도 0.0~0.2 표본에는 같은 사건을 다른 관점으로 쓴 기사가 있었다
+    # (예: 지역화폐 예산 전액 삭감을 '역점사업 축소' vs '지자체 여력 충분'으로 보도).
+    # 0.2~0.3 은 같은 보도자료 기사가 많지만 경계가 좁아, 상충 근거를 지키려고 0.3 으로 보수적으로 잡는다.
+    "v2": DedupConfig(name="v2", similarity_threshold=0.8, title_threshold=0.3, body_floor=0.3),
 }
 
 
