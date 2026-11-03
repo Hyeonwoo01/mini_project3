@@ -27,7 +27,12 @@ AI.M 데이터분석 트랙 미니 프로젝트 3 — 공공 문서·웹검색 �
 | 직접 수집 | 금융위원회 카드수수료(영세·중소가맹점 우대) 보도자료 | `press_release` |
 | 직접 수집 | 서울시·자치구 상권 지원사업 공고 | `announcement` |
 | 직접 수집 | 국책·지자체 연구기관 보고서 (NKIS, 서울연구원 등) | `policy_report` |
+| 직접 수집 | 핵심 법령 현행 조문 3~5개 (국가법령정보센터) | `law` |
 | 직접 수집 (선택) | 블로그 — 소상공인 체감 반응 | `blog` |
+
+법령 후보 (Day 1 확정): 지역상권 상생 및 활성화에 관한 법률, 전통시장 및 상점가 육성을 위한 특별법,
+여신전문금융업법(우대수수료 근거), 상가건물 임대차보호법, 지역사랑상품권 이용 활성화에 관한 법률.
+국회 법안·검토보고서가 아니라 현행 조문만 넣는다. 분석가에게 필요한 것은 현재 적용 기준이기 때문이다.
 
 소스별 접근 가능 여부와 이용약관은 Day 1에 확인하고 결과를 리포트에 기록한다.
 
@@ -84,6 +89,7 @@ mini_project3/
 │   ├── load_provided.py    #   제공 데이터 적재 및 선별
 │   ├── crawl_korea_kr.py   #   정책브리핑 보도자료 수집
 │   ├── crawl_blog.py       #   블로그 검색 API 수집
+│   ├── collect_law.py      #   법령 현행 조문 수집
 │   └── storage.py          #   원본 파일 저장, doc_id 생성
 ├── indexer/                # ② 인덱싱 계층 (배치)
 │   ├── __main__.py
@@ -150,6 +156,10 @@ python -m collector korea-kr --query "검색어"
 
 ```bash
 python -m collector blog --query "검색어"
+```
+
+```bash
+python -m collector law --name "법령명"
 ```
 
 **② 인덱싱** — 결과: `processed_documents`, `store/chroma/` 의 `docs__<설정명>` 컬렉션

@@ -17,6 +17,7 @@ class DocType(StrEnum):
     PRESS_RELEASE = "press_release"       # 중기부·소진공·금융위 등 보도자료
     ANNOUNCEMENT = "announcement"         # 서울시·자치구 상권 지원사업 공고
     POLICY_REPORT = "policy_report"       # 국책·지자체 연구기관 보고서
+    LAW = "law"                           # 핵심 법령 현행 조문 (국가법령정보센터)
     BLOG = "blog"                         # 소상공인 체감 반응
 
 
@@ -33,6 +34,7 @@ SOURCE_TIER: dict[DocType, SourceTier] = {
     DocType.PRESS_RELEASE: SourceTier.PRIMARY,
     DocType.ANNOUNCEMENT: SourceTier.PRIMARY,
     DocType.POLICY_REPORT: SourceTier.PRIMARY,
+    DocType.LAW: SourceTier.PRIMARY,
     DocType.BLOG: SourceTier.USER_GENERATED,
 }
 
