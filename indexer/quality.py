@@ -33,7 +33,9 @@
 |---------------|---------------------------------------------------------|-----------------------------------------------|
 | news          | 본문 과소(사진·단신), 기사형 광고 표지, 제목·리드에      | 비판·분석 기사는 유지.                         |
 |               | 주제어 없음, 서울 외 지자체 단독 사업, 기간 밖,          | 매체명 결손 → MISSING_SOURCE                   |
-|               | 정기 편성 기사(국회 일정·신문 요약 → LOW_INFORMATION)    | 지역 언급이 없는 전국 정책 기사는 범위 안      |
+|               | 정기 편성 기사(국회 일정·신문 요약 → LOW_INFORMATION),   | 지역 언급이 없는 전국 정책 기사는 범위 안.     |
+|               | 토론·회견 전문 → TOO_LONG                                | 100~300자 단신에도 할인율·예산 같은 사실 정보가 |
+|               |                                                         | 있으므로 최소 길이는 낮게 잡는다 (EDA 3번)      |
 | press_release | 행사 사진·일정만 있는 정보량 부족 문서                   | 1차 자료라 대부분 유지. 본문보다 첨부(HWP/PDF) |
 |               |                                                         | 가 핵심인 경우가 많아 파싱 품질이 곧 품질       |
 | announcement  | 정정·재공고로 대체된 원 공고 → SUPERSEDED                | 마감 공고는 비교·시점 질문용으로 유지 + EXPIRED |
@@ -74,7 +76,8 @@ class ExclusionReason(StrEnum):
     OFF_TOPIC = "off_topic"                # 제목·리드에 주제어 없음
     OUTSIDE_SEOUL = "outside_seoul"        # 서울 외 지자체 단독 사업
     OUT_OF_PERIOD = "out_of_period"        # 수집 기간(최근 5년) 밖
-    TOO_SHORT = "too_short"                # 본문 과소 (사진·단신 기사 등)
+    TOO_SHORT = "too_short"                # 본문 과소 (사진 설명·빈 본문 등)
+    TOO_LONG = "too_long"                  # 토론·회견 전문 등 장문 녹취 (청크 과다, 주제 관련성 낮음)
     TRUNCATED = "truncated"                # 본문 절단·누락
     PROMOTIONAL = "promotional"            # 기사형 광고, 대가성 블로그
     LOW_INFORMATION = "low_information"    # 행사 사진·일정만 있는 보도자료 등
@@ -147,6 +150,8 @@ def is_outside_seoul_program(doc: QualityInput) -> bool:
     - 통신사 기사 첫머리의 발신지 표기 '(서울=연합뉴스)' — 내용과 무관하므로 제거 후 판정한다
     - '서울'이 들어간 고유명사 (서울경제·서울신문 같은 매체명, 서울대, 서울우유 등)
     - AMBIGUOUS_DISTRICTS 의 중복 지명
+    - 광역 지자체명만 보면 '하남시는', '청주시는' 같은 기초 지자체 기사를 놓친다.
+      'OO시는/OO군이'처럼 지자체가 주어인 형태도 함께 본다 (대도시·신도시·연합군 등은 제외)
     - 전국 정책을 지역 설명회 형태로 소개하는 기사 (예: 타 지역의 "중기부 지원정책 설명회 개최").
       정책 내용이 거의 없으면 OUTSIDE_SEOUL 보다 LOW_INFORMATION 으로 보는 편이 사유 기록에 정확하다.
     """
