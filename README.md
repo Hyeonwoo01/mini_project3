@@ -207,6 +207,12 @@ python -m indexer verify --collection docs__c500
 
 **평가** — 결과: `eval/results/<일시>_<태그>/`
 
+청킹 설정별로 같은 평가셋을 돌려 Hit@1·Hit@3·Hit@5·MRR 을 비교한다. 검색은 챗봇과 같은 `rag.retriever` 로 한다.
+
+```bash
+python -m eval.run_eval --tag c1000 --collection docs__c1000
+```
+
 ```bash
 python -m eval.run_eval --tag c500 --collection docs__c500
 ```
@@ -257,7 +263,8 @@ pytest
 - [ ] 원본 파일(1차 자료) 파싱
 - [ ] 평가셋 작성
 - [ ] 실제 임베딩 적재 및 검증 (API 키 필요)
-- [ ] 검색기·평가 하네스 1차 측정
+- [x] 검색기(`rag/retriever.py`)·검색 평가 하네스(`eval/run_eval.py`)
+- [ ] 1차 측정 (평가셋 작성 후)
 - [ ] RAG 체인·거절 로직·출처 표기
 - [ ] Streamlit 챗 UI
 - [ ] 직접 채점, 개선 및 재측정

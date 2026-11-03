@@ -83,3 +83,68 @@ def test_check_eval_set_flags_empty_file(tmp_path, monkeypatch):
     path.write_text("", encoding="utf-8")
     monkeypatch.setattr(run_eval, "open_db", lambda **_: (_ for _ in ()).throw(FileNotFoundError()))
     assert any("비어" in p for p in run_eval.check_eval_set(path))
+
+
+class _FakeRetriever:
+    """질문별로 정해 둔 (doc_id, 점수) 목록을 돌려준다."""
+
+    def __init__(self, results):
+        self.results = results
+
+    def retrieve(self, query, *, k):
+        from rag.retriever import RetrievedChunk
+        return [RetrievedChunk(chunk_id=f"{d}#000", doc_id=d, text="", score=s, metadata={"title": d})
+                for d, s in self.results[query][:k]]
+
+
+def _items():
+    from eval.run_eval import EvalItem
+    return [
+        EvalItem("f001", "q1", "fact", ("d1",), "a"),            # 1위 적중
+        EvalItem("f002", "q2", "fact", ("d9", "d3"), "a"),       # 3위 적중
+        EvalItem("c001", "q3", "comparison", ("dx",), "a"),      # 미적중
+        EvalItem("u001", "q4", "unanswerable", (), "거절"),
+    ]
+
+
+def _fake():
+    return _FakeRetriever({
+        "q1": [("d1", 0.8), ("d2", 0.5), ("d3", 0.4)],
+        "q2": [("d1", 0.6), ("d2", 0.5), ("d3", 0.45), ("d4", 0.4)],
+        "q3": [("d5", 0.3), ("d6", 0.2), ("d7", 0.1)],
+        "q4": [("d8", 0.25), ("d2", 0.2), ("d1", 0.1)],
+    })
+
+
+def test_evaluate_and_summarize_retrieval():
+    from eval.run_eval import evaluate_retrieval, format_summary, summarize
+    records = evaluate_retrieval(_items(), _fake(), k=5)
+    by_id = {r["id"]: r for r in records}
+    assert by_id["f001"]["gold_rank"] == 1 and by_id["f002"]["gold_rank"] == 3 and by_id["c001"]["gold_rank"] is None
+    assert "hit@1" not in by_id["u001"] and by_id["u001"]["top_score"] == 0.25
+
+    summary = summarize(records, k=5)
+    assert summary["overall"] == {"count": 3, "hit@1": round(1 / 3, 4), "hit@3": round(2 / 3, 4),
+                                  "hit@5": round(2 / 3, 4), "mrr": round((1 + 1 / 3) / 3, 4)}
+    assert summary["by_type"]["comparison"]["hit@3"] == 0
+    assert summary["top_score"]["answerable_hit"]["median"] == 0.8
+    assert summary["top_score"]["unanswerable"]["median"] == 0.25
+    assert summary["unanswerable_count"] == 1
+    assert "Hit@3 0.667" in format_summary(summary, k=5)
+
+
+def test_save_results_writes_files(tmp_path):
+    from eval.run_eval import evaluate_retrieval, save_results, summarize
+    records = evaluate_retrieval(_items(), _fake(), k=5)
+    out = save_results(records, summarize(records, 5), {"tag": "t"}, "c1000", tmp_path)
+    assert (out / "retrieval.jsonl").read_text(encoding="utf-8").count("\n") == 4
+    summary = json.loads((out / "summary.json").read_text(encoding="utf-8"))
+    assert summary["config"] == {"tag": "t"} and summary["overall"]["count"] == 3
+    with pytest.raises(ValueError):
+        save_results(records, summarize(records, 5), {}, "bad tag!", tmp_path)
+
+
+def test_latency_p95_uses_nearest_rank():
+    from eval.run_eval import summarize
+    records = [{"gold_doc_ids": [], "top_score": 0.1, "latency_ms": ms, "type": "unanswerable"} for ms in (4.0, 6.0)]
+    assert summarize(records, k=5)["latency_ms"] == {"mean": 5.0, "p95": 6.0}
