@@ -2,7 +2,7 @@
 
     python -m collector probe                 # 수집 후보 사이트 접근 확인 (크롤러 작성 전)
     python -m collector provided              # 제공 뉴스 데이터 적재
-    python -m collector korea-kr --query ...  # 정책브리핑 보도자료 수집
+    python -m collector korea-kr --query ... [--ministry ...]  # 정책브리핑 보도자료 수집
     python -m collector blog --query ...      # 블로그 검색 API 수집
     python -m collector law --name ...        # 핵심 법령 현행 조문 수집
 """
@@ -23,9 +23,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--file", action="append", help="적재할 CSV 경로 (생략 시 data/provided/ 에서 지정 파일 자동 탐색)"
     )
 
-    korea_kr = sub.add_parser("korea-kr", help="대한민국 정책브리핑 보도자료 수집")
+    korea_kr = sub.add_parser("korea-kr", help="대한민국 정책브리핑 보도자료 수집 (PDF 원문)")
     korea_kr.add_argument("--query", action="append", required=True, help="검색어 (반복 지정 가능)")
-    korea_kr.add_argument("--max-pages", type=int, default=5)
+    korea_kr.add_argument("--ministry", action="append",
+                          help="이 부처의 보도자료만 받는다 (목록에 표시되는 부처명, 반복 지정 가능)")
+    korea_kr.add_argument("--start", default="2021-10-16", help="검색 시작일 (YYYY-MM-DD)")
+    korea_kr.add_argument("--end", default="2026-10-16", help="검색 종료일 (YYYY-MM-DD)")
+    korea_kr.add_argument("--max-pages", type=int, help="검색어별 최대 목록 쪽 수 (생략 시 끝까지)")
+    korea_kr.add_argument("--count-only", action="store_true", help="검색 결과 수만 확인하고 받지 않는다")
 
     blog = sub.add_parser("blog", help="블로그 검색 API 수집")
     blog.add_argument("--query", action="append", required=True, help="검색어 (반복 지정 가능)")
@@ -48,7 +53,8 @@ def main() -> None:
         load_provided.run(files=args.file)
     elif args.command == "korea-kr":
         from collector import crawl_korea_kr
-        crawl_korea_kr.run(queries=args.query, max_pages=args.max_pages)
+        crawl_korea_kr.run(queries=args.query, max_pages=args.max_pages, ministries=args.ministry,
+                           start=args.start, end=args.end, count_only=args.count_only)
     elif args.command == "blog":
         from collector import crawl_blog
         crawl_blog.run(queries=args.query, max_results=args.max_results)

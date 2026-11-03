@@ -203,7 +203,8 @@ class QualityConfig:
 
 
 _V1_RULES = dict(
-    min_chars={DocType.NEWS: 100},
+    # 보도자료는 PDF 추출 본문 기준. 200자 미만이면 추출 실패(스캔 이미지 등)나 사진 자료로 본다
+    min_chars={DocType.NEWS: 100, DocType.PRESS_RELEASE: 200},
     max_chars={DocType.NEWS: 10_000},
     lead_chars=300,
     topic_terms=DEFAULT_TOPIC_TERMS,

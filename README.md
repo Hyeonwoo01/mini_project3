@@ -44,10 +44,10 @@ EDA(`notebooks/eda.ipynb` 8번)로 본문 등장 건수를 확인하고, 부족�
 
 | 소스 | robots.txt | 결과 | 판단 |
 |---|---|---|---|
-| 정책브리핑 보도자료 (`korea.kr/briefing/pressReleaseList.do`) | 허용 | 목록·상세 정적 HTML, 상세 본문 텍스트 제공 | 주 수집원. 부처 보도자료(중기부·금융위 포함)를 한곳에서 검색어·기간으로 수집 |
+| 정책브리핑 보도자료 (`korea.kr/briefing/pressReleaseList.do`) | 허용 | 목록 정적 HTML, 검색어·기간 파라미터 동작. 상세 본문은 문서뷰어 iframe 이라 HTML 에 없고, 원문 PDF·HWPX 첨부(내려받기 허용) | 주 수집원. 부처 보도자료(중기부·금융위 포함)를 검색어·기간으로 찾고 **PDF 원문에서 본문 추출**. 공공누리 제1유형(텍스트) |
 | 금융위원회 보도자료 (`fsc.go.kr/no010101`) | 허용 | 목록·상세 정적 HTML, 첨부 `/comm/getFile` | 카드수수료 보도자료 원문 첨부 보강 |
-| 중소벤처기업부 보도자료 (`mss.go.kr/.../List.do?cbIdx=86`) | 허용 | 게시판 주소 확인 | 상세·첨부 형식 확인 중 |
-| 서울시 경제분야 누리집 (`news.seoul.go.kr/economy`) | 허용 | 목록·상세 정적 HTML | 서울 소상공인 지원사업 안내 |
+| 중소벤처기업부 보도자료 (`mss.go.kr/.../List.do?cbIdx=86`) | 허용 | 상세 링크가 일반 주소가 아님(`#view`) | 같은 보도자료가 정책브리핑에 있어 별도 수집하지 않음 |
+| 서울시 경제분야 누리집 (`news.seoul.go.kr/economy`) | 허용 | 목록·상세 정적 HTML (본문 `#post_content`) | 서울 소상공인 지원사업 안내. 공공누리 제4유형(출처표시·비상업·변경금지) |
 | 서울시 보도자료 (`www.seoul.go.kr/news`) | **금지** | 요청하지 않음 | 제외 |
 | 국가법령정보센터 Open API (`law.go.kr/DRF`) | 허용 | 응답 확인, 인증값(OC) 필요 | 활용 신청 후 법령 수집 |
 | 공공데이터포털 Open API (`apis.data.go.kr`) | 규칙 없음 | 서버 응답 확인 | 필요 시 사용 (서비스키) |
@@ -185,8 +185,16 @@ python -m collector provided
 python -m collector probe
 ```
 
+정책브리핑 보도자료는 검색어·기간(기본: 제공 뉴스와 같은 2021-10-16 ~ 2026-10-16)으로 찾고 부처명으로 거른다.
+PDF 원문을 `data/raw/press_release/` 에 저장하고, 본문 추출은 인덱서(`indexer prepare`)가 한다.
+이미 받은 문서는 건너뛰므로 중단되면 같은 명령을 다시 실행한다. 먼저 `--count-only` 로 결과 수를 확인한다.
+
 ```bash
-python -m collector korea-kr --query "검색어"
+python -m collector korea-kr --query 소상공인 --ministry 중소벤처기업부 --count-only
+```
+
+```bash
+python -m collector korea-kr --query 소상공인 --ministry 중소벤처기업부
 ```
 
 ```bash

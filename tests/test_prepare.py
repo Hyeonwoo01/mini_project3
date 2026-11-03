@@ -1,5 +1,7 @@
 from datetime import date
 
+import pymupdf
+
 from common.docstore import get_document, open_db, upsert_documents
 from common.schema import CollectMethod, DocType, DocumentRecord
 from indexer.dedup import DedupConfig
@@ -75,3 +77,36 @@ def test_prepare_builds_keyword_index_for_kept_documents_only(tmp_path):
         kept = {row[0] for row in conn.execute("SELECT doc_id FROM processed_documents WHERE status = 'kept'")}
     assert indexed == kept and len(indexed) == stats.keyword_indexed == 1
     assert "키워드 색인: 1건" in stats.summary()
+
+
+def _press(doc_id, raw_path):
+    return DocumentRecord(doc_id=doc_id, doc_type=DocType.PRESS_RELEASE, source="중소벤처기업부",
+                          title=f"보도자료 {doc_id}", url=f"https://www.korea.kr/briefing/pressReleaseView.do?newsId={doc_id}",
+                          collected_at="2026-11-03T08:00:00+00:00", collect_method=CollectMethod.CRAWL,
+                          published_at="2026-10-14", raw_path=raw_path)
+
+
+def test_prepare_reads_press_release_pdf_and_survives_broken_file(tmp_path):
+    pdf = pymupdf.open()
+    page = pdf.new_page()
+    for i in range(6):
+        page.insert_text((72, 72 + 24 * i), "소상공인 정책자금 지원 확대 안내 보도자료 본문입니다", fontname="korea")
+    good = tmp_path / "good.pdf"
+    pdf.save(good)
+    broken = tmp_path / "broken.pdf"
+    broken.write_bytes(b"not a pdf")
+    quality = QualityConfig(name="t", period_start=date(2024, 10, 16),
+                            min_chars={DocType.NEWS: 100, DocType.PRESS_RELEASE: 100},
+                            lead_chars=300, topic_terms=("소상공인",))
+
+    db = tmp_path / "docs.db"
+    with open_db(db) as conn:
+        upsert_documents(conn, [_press("p1", str(good)), _press("p2", str(broken))])
+        stats = prepare(conn, quality, DEDUP)
+
+    assert stats.statuses == {"kept": 1, "excluded": 1}
+    assert stats.excluded_reasons == {"too_short": 1}
+    assert len(stats.parse_errors) == 1 and stats.parse_errors[0].startswith("p2: ")
+    assert "원본 파싱 실패: 1" in stats.summary()
+    with open_db(db, read_only=True) as conn:
+        assert "정책자금 지원 확대" in get_document(conn, "p1")["clean_text"]

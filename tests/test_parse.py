@@ -1,6 +1,7 @@
+import pymupdf
 import pytest
 
-from indexer.parse import clean_text
+from indexer.parse import ParseError, clean_text, extract_text
 
 
 def test_normalizes_special_whitespace():
@@ -28,3 +29,27 @@ def test_keeps_body_sentences_that_mention_ai_or_copyright_topics():
 
 def test_collapses_spaces_and_blank_lines():
     assert clean_text("  가   나\n\n\n\n다  ") == "가 나\n\n다"
+
+
+def test_extract_text_reads_pdf_and_drops_page_number_lines(tmp_path):
+    pdf = pymupdf.open()
+    for n in (1, 2):
+        page = pdf.new_page()
+        page.insert_text((72, 72), f"page {n} body", fontname="helv")
+        page.insert_text((72, 100), "소상공인 지원", fontname="korea")
+        page.insert_text((72, 128), "3", fontname="helv")             # 표의 숫자 셀은 남긴다
+        page.insert_text((280, 800), f"- {n} -", fontname="helv")
+    path = tmp_path / "press.pdf"
+    pdf.save(path)
+
+    lines = [line for line in extract_text(str(path)).splitlines() if line.strip()]
+    assert lines == ["page 1 body", "소상공인 지원", "3", "page 2 body", "소상공인 지원", "3"]
+
+
+@pytest.mark.parametrize("name, content", [("broken.pdf", b"not a pdf"), ("missing.pdf", None), ("doc.hwp", b"x")])
+def test_extract_text_raises_parse_error(tmp_path, name, content):
+    path = tmp_path / name
+    if content is not None:
+        path.write_bytes(content)
+    with pytest.raises(ParseError):
+        extract_text(str(path))
