@@ -115,7 +115,8 @@ def get_settings() -> Settings:
         # 임계값 0.5 는 답변 가능 문항 1위 유사도 최저(0.570)보다 낮고 답변 불가 2문항을 검색 단계에서 거절한다.
         rag_min_score=_parse_min_score(_env("RAG_MIN_SCORE", "0.5")),
         rag_retrieval_mode=_parse_retrieval_mode(_env("RAG_RETRIEVAL_MODE", "hybrid")),
-        rag_context_chunks=_parse_context_chunks(_env("RAG_CONTEXT_CHUNKS", "1")),
+        # 답변 채점 결과로 정했다: 청크 2개가 정답률 50% → 58%, 출처 정확도 86% → 95% (README '실험 기록')
+        rag_context_chunks=_parse_context_chunks(_env("RAG_CONTEXT_CHUNKS", "2")),
         crawl_delay_sec=_parse_crawl_delay(_env("CRAWL_DELAY_SEC", "1.5")),
         crawler_user_agent=_env("CRAWLER_USER_AGENT", "mini-project3-edu-crawler/0.1"),
     )

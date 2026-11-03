@@ -16,6 +16,7 @@ carry 는 개선 실험마다 30문항을 다시 채점하지 않도록, 답변 
 import argparse
 import csv
 import json
+import re
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -23,6 +24,12 @@ from eval.run_eval import ANSWER_COLUMNS
 
 GRADES = ("정확", "부분", "오답")
 CITATIONS = ("Y", "N", "-")
+_CHUNK_COUNT = re.compile(r", 청크 \d+개")
+
+
+def _source_docs(sources: str) -> str:
+    """출처 비교용. 근거 확장 실험의 '청크 n개' 표시는 인용 문서가 같으면 판정에 영향이 없으므로 뺀다."""
+    return _CHUNK_COUNT.sub("", sources).strip()
 
 
 def read_answers(path: Path) -> list[dict[str, str]]:
@@ -107,7 +114,8 @@ def carry_grades(previous: list[dict[str, str]], current: list[dict[str, str]]) 
         if old and old["answer"].strip() == row["answer"].strip() and old.get("grade", "").strip():
             row["grade"], row["note"] = old["grade"], old.get("note", "")
             carried += 1
-            if old.get("sources", "").strip() == row.get("sources", "").strip():
+            # 같은 답변이면서 인용 문서가 같거나, 인용 판정 대상이 아니었던(-) 경우 citation_ok 도 옮긴다
+            if old.get("citation_ok", "").strip() == "-" or _source_docs(old.get("sources", "")) == _source_docs(row.get("sources", "")):
                 row["citation_ok"] = old.get("citation_ok", "")
                 with_citation += 1
         if not row.get("grade", "").strip() or not row.get("citation_ok", "").strip():

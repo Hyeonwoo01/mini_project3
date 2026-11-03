@@ -45,7 +45,7 @@ _CITATION = re.compile(r"\[(\d{1,2})\]")
 class ChainConfig:
     top_k: int = 5
     min_score: float = 0.5
-    context_chunks: int = 1   # 임계값을 통과한 문서마다 근거로 넣는 청크 수
+    context_chunks: int = 1   # 임계값을 통과한 문서마다 근거로 넣는 청크 수 (서비스 기본값은 설정 RAG_CONTEXT_CHUNKS)
 
     def __post_init__(self) -> None:
         if self.top_k < 1 or not 0.0 <= self.min_score < 1.0 or not 1 <= self.context_chunks <= 3:

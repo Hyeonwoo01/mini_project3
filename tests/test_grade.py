@@ -45,6 +45,15 @@ def test_carry_grades_only_for_identical_answers():
     assert todo == ["f002", "f003"]
 
 
+def test_carry_ignores_chunk_count_note_and_refusals():
+    previous = [_row("f001", "fact", "정확", "Y", answer="답[1]", sources="[1] 기사 (2026-01-01, d1, 유사도 0.600)"),
+                _row("u001", "unanswerable", "정확", "-", answer="제공된 자료에서 확인할 수 없습니다.", sources="[1] 옛 기사")]
+    current = [_row("f001", "fact", "", "", answer="답[1]", sources="[1] 기사 (2026-01-01, d1, 유사도 0.600, 청크 2개)"),
+               _row("u001", "unanswerable", "", "", answer="제공된 자료에서 확인할 수 없습니다.", sources="[1] 새 기사")]
+    assert carry_grades(previous, current) == (2, 2, [])
+    assert current[0]["citation_ok"] == "Y" and current[1]["citation_ok"] == "-"
+
+
 def test_read_write_roundtrip_with_bom_and_multiline(tmp_path):
     path = tmp_path / "answers.csv"
     rows = [_row("f001", "fact", "정확", "Y", answer="첫 줄\n둘째 줄")]
