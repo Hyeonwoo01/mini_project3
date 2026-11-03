@@ -99,9 +99,10 @@ mini_project3/
 │   └── storage.py          #   원본 파일 저장, doc_id 생성
 ├── indexer/                # ② 인덱싱 계층 (배치)
 │   ├── __main__.py
+│   ├── prepare.py          #   정제 → 품질 필터 → 중복 처리 (processed_documents)
 │   ├── parse.py            #   PDF·HTML 텍스트 추출, 보일러플레이트 제거
 │   ├── quality.py          #   품질 필터 (범위 밖·불량 제외, 신뢰도 플래그)
-│   ├── dedup.py            #   중복 내용 처리
+│   ├── dedup.py            #   완전 중복·재배포본 처리 (본문 유사도)
 │   ├── chunk.py            #   문서 종류별 청킹 설정
 │   └── embed.py            #   임베딩·Chroma 적재·검증
 ├── store/                  # ③ 저장 계층 (git 미포함, 인덱서 실행으로 생성)
@@ -178,6 +179,12 @@ python -m collector law --name "법령명"
 python -m indexer prepare
 ```
 
+품질 필터 없이 실행하면 개선 전 기준 실험이 된다 (`--quality none`). 결과 요약의 사유별 건수가 처리 전후 건수다.
+
+```bash
+python -m indexer prepare --quality none
+```
+
 ```bash
 python -m indexer build --chunk-config baseline
 ```
@@ -227,9 +234,11 @@ pytest
 - [x] 주제·사용자·범위 정의
 - [ ] 수집 소스 접근 가능 여부 확인
 - [x] 제공 데이터 적재 모듈, EDA 노트북
-- [ ] 제공 데이터 EDA 실행, 대표 질문 확정
+- [x] 제공 데이터 EDA 실행 → 품질 필터 v1 확정
+- [x] 정제·품질 필터·중복 처리 (`indexer prepare`)
+- [ ] 중복 처리 임계값 확정 (EDA 12번), 대표 질문 확정
 - [ ] 직접 수집 (1차 자료)
-- [ ] 파싱·중복 처리·청킹 (설정 2개 이상)
+- [ ] 원본 파일 파싱, 청킹 (설정 2개 이상)
 - [ ] 평가셋 작성
 - [ ] 임베딩·Chroma 적재 및 검증
 - [ ] 검색기·평가 하네스 1차 측정

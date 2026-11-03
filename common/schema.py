@@ -99,3 +99,31 @@ class DocumentRecord:
         _validate_iso(self.collected_at, "collected_at")
         if self.published_at is not None:
             _validate_iso(self.published_at, "published_at")
+
+
+PROCESSED_STATUSES = ("kept", "duplicate", "excluded")
+
+
+@dataclass(frozen=True)
+class ProcessedRecord:
+    """인덱서가 processed_documents 테이블에 기록하는 단위 (정제·품질 필터·중복 처리 결과)."""
+
+    doc_id: str
+    status: str                       # kept | duplicate | excluded
+    processed_at: str                 # ISO 8601
+    clean_text: str | None = None     # 제외 문서는 저장하지 않는다 (원문은 documents.raw_text)
+    content_hash: str | None = None
+    canonical_doc_id: str | None = None  # 대표 문서 id. 대표 문서는 자기 자신, 제외 문서는 None
+    excluded_reason: str | None = None
+    quality_flags: tuple[str, ...] = ()
+    scope: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.status not in PROCESSED_STATUSES:
+            raise ValueError(f"알 수 없는 status: {self.status!r}")
+        if (self.status == "excluded") != (self.excluded_reason is not None):
+            raise ValueError(f"제외 문서에만 excluded_reason 이 있어야 합니다: {self.doc_id}")
+        if self.status == "kept" and self.canonical_doc_id != self.doc_id:
+            raise ValueError(f"대표 문서의 canonical_doc_id 는 자기 자신이어야 합니다: {self.doc_id}")
+        if self.status == "duplicate" and self.canonical_doc_id in (None, self.doc_id):
+            raise ValueError(f"중복 문서에는 다른 대표 문서 id 가 있어야 합니다: {self.doc_id}")

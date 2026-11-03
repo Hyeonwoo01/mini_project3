@@ -19,9 +19,9 @@ from pathlib import Path
 from typing import Any
 
 from common.config import get_settings
-from common.schema import DocumentRecord
+from common.schema import DocumentRecord, ProcessedRecord
 
-SCHEMA = """
+DOCUMENTS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS documents (
     doc_id          TEXT PRIMARY KEY,
     doc_type        TEXT NOT NULL,
@@ -38,7 +38,10 @@ CREATE TABLE IF NOT EXISTS documents (
 );
 CREATE INDEX IF NOT EXISTS idx_documents_url ON documents(url);
 CREATE INDEX IF NOT EXISTS idx_documents_type_date ON documents(doc_type, published_at);
+"""
 
+# indexer 가 prepare 실행마다 통째로 다시 만드는 파생 테이블이다 (replace_processed_documents).
+PROCESSED_SCHEMA = """
 CREATE TABLE IF NOT EXISTS processed_documents (
     doc_id            TEXT PRIMARY KEY REFERENCES documents(doc_id) ON DELETE CASCADE,
     clean_text        TEXT,
@@ -47,8 +50,10 @@ CREATE TABLE IF NOT EXISTS processed_documents (
     status            TEXT NOT NULL CHECK (status IN ('kept', 'duplicate', 'excluded')),
     excluded_reason   TEXT,                      -- indexer.quality.ExclusionReason 값
     quality_flags     TEXT NOT NULL DEFAULT '[]', -- indexer.quality.QualityFlag 값 목록 (JSON)
+    scope             TEXT,                      -- indexer.quality.Scope 값 (뉴스만)
     processed_at      TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_processed_status ON processed_documents(status);
 """
 
 _DOCUMENT_COLUMNS = (
@@ -67,7 +72,7 @@ def _connect(db_path: Path, read_only: bool) -> sqlite3.Connection:
     else:
         db_path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(db_path)
-        conn.executescript(SCHEMA)
+        conn.executescript(DOCUMENTS_SCHEMA + PROCESSED_SCHEMA)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
@@ -111,10 +116,10 @@ def upsert_documents(conn: sqlite3.Connection, records: Iterable[DocumentRecord]
 
 
 def get_document(conn: sqlite3.Connection, doc_id: str) -> dict[str, Any] | None:
-    """원문 확인 영역용 조회. 정제 본문이 있으면 함께 반환한다."""
+    """원문 확인 영역용 조회. 인덱서 처리 결과(정제 본문·상태·제외 사유)가 있으면 함께 반환한다."""
     row = conn.execute(
         """
-        SELECT d.*, p.clean_text, p.status, p.canonical_doc_id, p.quality_flags
+        SELECT d.*, p.clean_text, p.status, p.canonical_doc_id, p.excluded_reason, p.quality_flags, p.scope
         FROM documents AS d
         LEFT JOIN processed_documents AS p USING (doc_id)
         WHERE d.doc_id = ?
@@ -128,3 +133,29 @@ def get_document(conn: sqlite3.Connection, doc_id: str) -> dict[str, Any] | None
     # 인덱서 실행 전이면 processed_documents 행이 없어 NULL 이다.
     result["quality_flags"] = json.loads(result["quality_flags"] or "[]")
     return result
+
+
+def iter_documents(conn: sqlite3.Connection) -> Iterator[sqlite3.Row]:
+    """수집된 문서 전체를 doc_id 순으로 읽는다."""
+    yield from conn.execute("SELECT * FROM documents ORDER BY doc_id")
+
+
+def replace_processed_documents(conn: sqlite3.Connection, records: Iterable[ProcessedRecord]) -> int:
+    """processed_documents 를 비우고 다시 채운다. prepare 는 항상 전체를 다시 계산한다.
+
+    테이블을 지우고 새로 만들어서, 이전 버전 스키마로 만들어진 DB 도 새 컬럼을 갖게 한다.
+    """
+    conn.executescript("DROP TABLE IF EXISTS processed_documents;" + PROCESSED_SCHEMA)
+    rows = [
+        (
+            r.doc_id, r.clean_text, r.content_hash, r.canonical_doc_id, r.status, r.excluded_reason,
+            json.dumps(list(r.quality_flags), ensure_ascii=False), r.scope, r.processed_at,
+        )
+        for r in records
+    ]
+    conn.executemany(
+        "INSERT INTO processed_documents (doc_id, clean_text, content_hash, canonical_doc_id, status, "
+        "excluded_reason, quality_flags, scope, processed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        rows,
+    )
+    return len(rows)
