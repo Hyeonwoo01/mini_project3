@@ -4,6 +4,11 @@
     python -m eval.find_docs 지역화폐 예산 삭감 --year 2022
     python -m eval.find_docs 골목상권 매출 --scope seoul --limit 30
     python -m eval.find_docs --doc news_20251216_1a2b3c4d     # 문서 전문 확인
+    python -m eval.find_docs --batch data/question_drafts.txt  # 문항 후보별 검색 결과를 파일로
+
+--batch 파일 형식 (한 줄에 한 문항, # 으로 시작하면 주석):
+    f001 | 상생페이백 11월분 환급액과 누적 지급액은? | 상생페이백 11월
+결과는 data/eval_candidates.md 에 UTF-8 로 저장한다 (기사 본문 일부가 들어가므로 git 에 올리지 않는다).
 
 - 인덱싱 대상(processed_documents.status = 'kept')만 검색한다. 중복으로 빠진 문서는 대표 문서로
   대체되었으므로, 평가셋에는 여기서 찾은 doc_id 를 적어야 검색 지표가 올바르게 계산된다.
@@ -14,7 +19,9 @@
 import argparse
 import sqlite3
 from dataclasses import dataclass
+from pathlib import Path
 
+from common.config import PROJECT_ROOT
 from common.docstore import open_db
 
 SNIPPET_RADIUS = 60
@@ -96,21 +103,64 @@ def show_document(conn: sqlite3.Connection, doc_id: str) -> str:
     ])
 
 
+BATCH_LIMIT = 8
+DEFAULT_BATCH_OUT = PROJECT_ROOT / "data" / "eval_candidates.md"
+
+
+def parse_batch_line(line: str) -> tuple[str, str, list[str]] | None:
+    """'id | 질문 | 검색어' 한 줄을 읽는다. 빈 줄·주석은 None."""
+    line = line.strip()
+    if not line or line.startswith("#"):
+        return None
+    parts = [part.strip() for part in line.split("|")]
+    if len(parts) != 3 or not all(parts):
+        raise ValueError(f"형식 오류 (id | 질문 | 검색어): {line}")
+    return parts[0], parts[1], parts[2].split()
+
+
+def run_batch(conn: sqlite3.Connection, batch_path: Path, out_path: Path, limit: int = BATCH_LIMIT) -> int:
+    """문항 후보마다 검색해 결과를 마크다운으로 저장한다. 검색 결과가 없는 문항 수를 반환한다."""
+    entries = [e for line in batch_path.read_text(encoding="utf-8").splitlines() if (e := parse_batch_line(line))]
+    lines = ["# 평가셋 후보 검색 결과", "",
+             "후보 기사를 읽고 답이 실제로 있는지 확인한 뒤 gold_doc_ids 를 정한다 (--doc 으로 전문 확인).", ""]
+    empty = 0
+    for qid, question, terms in entries:
+        found = search(conn, terms, limit=limit)
+        lines += [f"## {qid} — {question}", f"검색어: {' '.join(terms)} · {len(found)}건", ""]
+        if not found:
+            empty += 1
+            lines += ["(검색 결과 없음 — 답변 불가 후보이거나 검색어를 바꿔 볼 것)", ""]
+        for doc in found:
+            lines.append(f"- `{doc.doc_id}` {(doc.published_at or '날짜 미상')[:10]} {doc.source} "
+                         f"[{doc.scope or '-'}] **{doc.title}**")
+            lines.append(f"  - {doc.snippet}")
+        lines.append("")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text("\n".join(lines), encoding="utf-8")
+    return empty
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="python -m eval.find_docs", description="평가셋 정답 문서 검색")
     parser.add_argument("terms", nargs="*", help="검색어 (모두 포함)")
     parser.add_argument("--doc", help="이 doc_id 의 전문을 출력")
+    parser.add_argument("--batch", type=Path, help="'id | 질문 | 검색어' 파일의 문항 후보를 한꺼번에 검색")
+    parser.add_argument("--out", type=Path, default=DEFAULT_BATCH_OUT, help="--batch 결과 파일")
     parser.add_argument("--scope", choices=["seoul", "national"], help="뉴스 범위")
     parser.add_argument("--year", type=int, help="발행 연도")
     parser.add_argument("--limit", type=int, default=20)
     args = parser.parse_args()
-    if not args.doc and not args.terms:
-        parser.error("검색어 또는 --doc 이 필요합니다")
+    if not args.doc and not args.terms and not args.batch:
+        parser.error("검색어, --doc 또는 --batch 가 필요합니다")
 
     try:
         with open_db(read_only=True) as conn:
             if args.doc:
                 print(show_document(conn, args.doc))
+                return
+            if args.batch:
+                empty = run_batch(conn, args.batch, args.out)
+                print(f"저장: {args.out} (검색 결과 없는 문항 {empty}개)")
                 return
             found = search(conn, args.terms, scope=args.scope, year=args.year, limit=args.limit)
     except sqlite3.OperationalError as exc:

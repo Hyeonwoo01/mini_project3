@@ -57,3 +57,17 @@ def test_show_document_points_duplicates_to_canonical(conn):
     assert "대표 문서 a" in show_document(conn, "b")
     assert "정답 문서로 쓸 수 없습니다" in show_document(conn, "d")
     assert "3916억원" in show_document(conn, "a")
+
+
+def test_batch_search_writes_markdown(conn, tmp_path):
+    from eval.find_docs import parse_batch_line, run_batch
+    drafts = tmp_path / "drafts.txt"
+    drafts.write_text("# 주석\n\nf001 | 상생페이백 11월분 지급액은? | 상생페이백 11월\n"
+                      "u001 | 2030년 폐업률 전망은? | 폐업률 2030\n", encoding="utf-8")
+    out = tmp_path / "candidates.md"
+    assert run_batch(conn, drafts, out) == 1                     # u001 은 결과 없음
+    text = out.read_text(encoding="utf-8")
+    assert "## f001 — 상생페이백 11월분 지급액은?" in text and "`a`" in text and "`b`" not in text
+    assert "(검색 결과 없음" in text
+    with pytest.raises(ValueError):
+        parse_batch_line("f002 | 검색어 없음")
