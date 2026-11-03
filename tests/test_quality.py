@@ -77,8 +77,27 @@ def test_registered_config_and_unknown_name():
         get_quality_config("does-not-exist")
 
 
-def test_lead_text_strips_dateline():
-    assert "연합뉴스" not in lead_text("제목", "(서울=연합뉴스) 홍길동 기자 = 본문", 300)
+@pytest.mark.parametrize("dateline", ["(서울=연합뉴스)", "(서울 뉴스1)", "[대전 뉴시스]", "(충주 연합뉴스TV)"])
+def test_lead_text_strips_dateline(dateline):
+    lead = lead_text("제목", f"{dateline} 홍길동 기자 = 본문", 300)
+    assert "서울" not in lead and "대전" not in lead and "충주" not in lead
+
+
+def test_lead_text_keeps_place_in_parentheses():
+    assert "강남구" in lead_text("제목", "(서울 강남구) 골목상권 매출", 300)
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        # 제공 데이터의 실제 형태: 발신지만 서울인 전국 기사, 발신지만 지방인 전국 기사
+        ("(서울 뉴스1) 중소벤처기업부가 내년도 전통시장과 소상공인 지원을 확대한다.", Scope.NATIONAL),
+        ("(대전 연합뉴스) 소상공인시장진흥공단은 폐업 소상공인 지원을 늘린다.", Scope.NATIONAL),
+        ("(서울 뉴스1) 서울시는 골목상권 지원을 확대한다.", Scope.SEOUL),
+    ],
+)
+def test_scope_ignores_dateline_without_equals_sign(text, expected):
+    assert classify_scope(lead_text("소상공인 지원", text, 300)) == expected
 
 
 @pytest.mark.parametrize(
