@@ -113,7 +113,9 @@ mini_project3/
 │   ├── chain.py
 │   └── prompts.py
 ├── eval/                   # 평가 하네스
+│   ├── README.md           #   평가셋 작성 가이드
 │   ├── eval_set.jsonl
+│   ├── find_docs.py        #   정답 문서 검색
 │   ├── run_eval.py
 │   └── results/            #   실험별 결과 (git 포함)
 ├── app/                    # ④ 챗봇 UI (조회 전용)
@@ -212,6 +214,8 @@ pytest
 ```
 
 ## 평가셋 형식
+
+작성 절차와 문항 재료는 [`eval/README.md`](eval/README.md) 참조. 정답 문서는 `python -m eval.find_docs <검색어>` 로 찾고 `python -m eval.run_eval --check` 로 검사한다.
 
 `eval/eval_set.jsonl` — 한 줄에 한 문항. `id` 는 실험 간 같은 문항을 대조하는 키이므로 바꾸지 않는다.
 

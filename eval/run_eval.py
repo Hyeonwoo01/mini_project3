@@ -2,6 +2,7 @@
 
     python -m eval.run_eval --tag baseline --collection docs__baseline
     python -m eval.run_eval --tag baseline --collection docs__baseline --with-answers
+    python -m eval.run_eval --check      # 평가셋 형식·유형 구성·정답 문서 존재 여부만 검사
 
 평가셋 형식 (eval/eval_set.jsonl, 한 줄에 한 문항):
     {"id": "f001", "q": "...", "type": "fact", "gold_doc_ids": ["kr_20260115_1a2b3c4d"], "answer_key": "..."}
@@ -17,9 +18,14 @@ id 는 실험 간 같은 문항을 대조하는 키이므로 문항을 수정·�
 
 import argparse
 import json
+import sqlite3
+from collections import Counter
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+
+from common.config import get_settings
+from common.docstore import open_db
 
 QUESTION_TYPES = ("fact", "comparison", "temporal", "synthesis", "unanswerable")
 
@@ -92,13 +98,50 @@ def reciprocal_rank(ranked_doc_ids: Sequence[str], gold_doc_ids: Collection[str]
     return 0.0
 
 
+def check_eval_set(path: Path) -> list[str]:
+    """형식을 검증하고 유형 구성과 정답 문서 존재 여부를 출력한다. 문제 목록을 반환한다."""
+    items = load_eval_set(path)
+    counts = Counter(item.type for item in items)
+    print(f"{path}: {len(items)}문항")
+    for question_type in QUESTION_TYPES:
+        share = counts[question_type] / len(items) if items else 0
+        print(f"  {question_type:13} {counts[question_type]:3}문항 ({share:.0%})")
+
+    problems = []
+    if not items:
+        problems.append("평가셋이 비어 있습니다 (eval/README.md 의 절차로 작성)")
+    elif not counts["unanswerable"]:
+        problems.append("답변 불가(unanswerable) 문항이 없습니다 (가이드 4-3: 반드시 포함)")
+    try:
+        with open_db(read_only=True) as conn:
+            kept = {row[0] for row in conn.execute("SELECT doc_id FROM processed_documents WHERE status = 'kept'")}
+    except (FileNotFoundError, sqlite3.OperationalError):
+        print("  (원문 DB 또는 인덱서 결과가 없어 정답 문서 확인을 건너뜁니다)")
+        kept = None
+    if kept is not None:
+        for item in items:
+            for doc_id in item.gold_doc_ids:
+                if doc_id not in kept:
+                    problems.append(f"{item.id}: 정답 문서 {doc_id} 가 인덱싱 대상(kept)이 아닙니다")
+    for problem in problems:
+        print(f"  ! {problem}")
+    if not problems:
+        print("  문제 없음")
+    return problems
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="python -m eval.run_eval", description="평가 하네스")
-    parser.add_argument("--tag", required=True, help="실험 태그 (결과 디렉터리 이름에 사용)")
+    parser.add_argument("--check", action="store_true", help="평가셋 검사만 수행")
+    parser.add_argument("--tag", help="실험 태그 (결과 디렉터리 이름에 사용)")
     parser.add_argument("--collection", help="평가할 Chroma 컬렉션 (기본: CHROMA_COLLECTION)")
     parser.add_argument("--k", type=int, default=5, help="검색 결과 수")
     parser.add_argument("--with-answers", action="store_true", help="답변 생성 및 채점용 CSV 출력")
-    parser.parse_args()
+    args = parser.parse_args()
+    if args.check:
+        raise SystemExit(1 if check_eval_set(get_settings().eval_set_path) else 0)
+    if not args.tag:
+        parser.error("--tag 가 필요합니다 (평가 실행 시)")
     raise NotImplementedError
 
 

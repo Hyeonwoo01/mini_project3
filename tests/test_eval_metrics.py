@@ -65,3 +65,21 @@ def test_load_eval_set_rejects_duplicate_ids(tmp_path):
     _write_jsonl(path, [row, row])
     with pytest.raises(ValueError):
         load_eval_set(path)
+
+
+def test_check_eval_set_reports_missing_unanswerable(tmp_path, monkeypatch, capsys):
+    from eval import run_eval
+    path = tmp_path / "eval_set.jsonl"
+    _write_jsonl(path, [{"id": "f001", "q": "질문", "type": "fact", "gold_doc_ids": ["d1"], "answer_key": "답"}])
+    monkeypatch.setattr(run_eval, "open_db", lambda **_: (_ for _ in ()).throw(FileNotFoundError()))
+    problems = run_eval.check_eval_set(path)
+    assert any("unanswerable" in p for p in problems)
+    assert "fact" in capsys.readouterr().out
+
+
+def test_check_eval_set_flags_empty_file(tmp_path, monkeypatch):
+    from eval import run_eval
+    path = tmp_path / "eval_set.jsonl"
+    path.write_text("", encoding="utf-8")
+    monkeypatch.setattr(run_eval, "open_db", lambda **_: (_ for _ in ()).throw(FileNotFoundError()))
+    assert any("비어" in p for p in run_eval.check_eval_set(path))
