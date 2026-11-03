@@ -86,3 +86,28 @@ def test_similar_pairs_and_count_duplicates():
 def test_config_validation(overrides):
     with pytest.raises(ValueError):
         DedupConfig(**{"name": "x", "similarity_threshold": 0.8, **overrides})
+
+
+def test_title_similarity_ignores_tags_and_punctuation():
+    from indexer.dedup import title_similarity
+    assert title_similarity("[단독] '상생페이백' 11월분 3916억원 지급", "'상생페이백' 11월분 3916억원 지급") == 1.0
+    assert title_similarity("상생페이백 지급", "부산 전통시장 축제") < 0.1
+
+
+def test_rewrite_of_same_press_release_merges_only_with_title_rule():
+    base = "중소벤처기업부는 폐업 소상공인의 점포 철거비 지원 한도를 최대 600만원으로 올린다고 밝혔다. "
+    a = DedupInput("a", DocType.NEWS, base + "신청은 다음 달부터 받는다. " * 3, "2025-07-30", "폐업 소상공인 점포 철거 지원금 600만원까지 확대")
+    b = DedupInput("b", DocType.NEWS, base + "지원 대상은 올해 폐업한 사업자다. " * 3, "2025-07-30", "중기부, 폐업 소상공인 점포 철거비 최대 600만원 지원")
+    c = DedupInput("c", DocType.NEWS, base + "현장에서는 실효성 논란도 나온다. " * 3, "2025-07-30", "철거비 늘려도 재기는 어렵다…현장의 목소리")
+    body_only = DedupConfig(name="body", similarity_threshold=0.8)
+    with_title = DedupConfig(name="title", similarity_threshold=0.8, title_threshold=0.3, body_floor=0.3)
+
+    assert not any(r.is_duplicate for r in deduplicate([a, b, c], body_only).values())
+    results = deduplicate([a, b, c], with_title)
+    assert results["a"].canonical_doc_id == results["b"].canonical_doc_id   # 같은 보도자료 기사
+    assert not results["c"].is_duplicate                                    # 제목이 다른 해설 기사는 유지
+
+
+def test_title_rule_config_validation():
+    with pytest.raises(ValueError):
+        DedupConfig(name="x", similarity_threshold=0.8, title_threshold=0.5, body_floor=0.9)

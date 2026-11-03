@@ -2,9 +2,14 @@
 
 | 구분                | 판별 기준                        | 처리                                   |
 |---------------------|----------------------------------|----------------------------------------|
-| 완전 중복           | 정규화한 본문이 같음 (날짜 무관)  | 대표 1건만 유지                         |
-| 재배포본            | 본문 유사도 ≥ 임계값, 발행일 근접 | 대표 1건만 유지                         |
-| 동일 사건 유사 기사 | 유사도가 임계값 미만             | 관점이 다를 수 있으므로 유지 (상충 근거) |
+| 완전 중복           | 정규화한 본문이 같음 (날짜 무관)        | 대표 1건만 유지                         |
+| 재배포본            | 본문 유사도 ≥ similarity_threshold     | 대표 1건만 유지                         |
+| 같은 보도자료 기사  | 본문 ≥ body_floor 이면서 제목도 유사    | 대표 1건만 유지 (title_threshold 설정 시) |
+| 동일 사건 유사 기사 | 위 조건 미달 (제목이 다른 분석·해설 등) | 관점이 다를 수 있으므로 유지 (상충 근거) |
+
+EDA 12번: 매체마다 같은 보도자료를 다시 쓴 기사는 본문 유사도가 0.35~0.55 에 머문다
+(예: '상생페이백 11월분 3916억원 지급' 두 매체 0.35). 같은 구간에 관점이 다른 분석 기사도
+섞여 있어 본문 임계값만 낮추면 둘 다 지워진다. 제목이 같은 사안을 가리키는지를 함께 본다.
 
 유사도: 공백·기호를 뗀 본문의 문자 5-gram(shingle) 집합 간 Jaccard 유사도.
 - 메모리를 줄이려고 해시값이 sample_mod 로 나누어떨어지는 shingle 만 쓴다. 해시는 crc32 라
@@ -39,17 +44,26 @@ class DedupConfig:
     max_day_gap: int = 3          # 발행일 차이가 이 이내인 쌍만 비교
     shingle_size: int = 5
     sample_mod: int = 4
+    # 같은 보도자료 기사: 본문 유사도 ≥ body_floor 이면서 제목 유사도 ≥ title_threshold. None 이면 끈다.
+    title_threshold: float | None = None
+    body_floor: float = 0.3
 
     def __post_init__(self) -> None:
         if not 0 < self.similarity_threshold <= 1:
             raise ValueError(f"similarity_threshold 는 (0, 1] 범위여야 합니다: {self.name}")
+        if self.title_threshold is not None and not (
+            0 < self.title_threshold <= 1 and 0 < self.body_floor <= self.similarity_threshold
+        ):
+            raise ValueError(f"title_threshold·body_floor 설정이 잘못되었습니다: {self.name}")
         if self.max_day_gap < 0 or self.shingle_size < 2 or self.sample_mod < 1:
             raise ValueError(f"잘못된 중복 처리 설정: {self}")
 
 
 DEDUP_CONFIGS: dict[str, DedupConfig] = {
-    # 임계값은 EDA 12번(유사도 구간별 표본)을 읽고 확정한다.
+    # 본문이 거의 같은 재배포본만 묶는다 (EDA 12번: 0.8 이상 925건 제거)
     "v1": DedupConfig(name="v1", similarity_threshold=0.8),
+    # 같은 보도자료를 다시 쓴 기사까지 묶는다. title_threshold 는 EDA 13번 표본으로 확정한다.
+    "v2": DedupConfig(name="v2", similarity_threshold=0.8, title_threshold=0.5, body_floor=0.3),
 }
 
 
@@ -67,6 +81,7 @@ class DedupInput:
     doc_type: DocType
     text: str
     published_at: str | None
+    title: str = ""
 
 
 @dataclass(frozen=True)
@@ -92,6 +107,21 @@ def shingles(text: str, size: int = 5, sample_mod: int = 4) -> frozenset[int]:
     norm = normalize(text)
     hashes = (zlib.crc32(norm[i:i + size].encode("utf-8")) for i in range(len(norm) - size + 1))
     return frozenset(h for h in hashes if h % sample_mod == 0)
+
+
+_TITLE_TAG = re.compile(r"[\[【(<][^\]】)>]{0,15}[\]】)>]")
+
+
+def title_similarity(a: str, b: str) -> float:
+    """제목의 문자 2-gram Jaccard. [단독]·[포토] 같은 머리말과 공백·기호는 뗀다."""
+    def grams(title: str) -> set[str]:
+        norm = normalize(_TITLE_TAG.sub("", title))
+        return {norm[i:i + 2] for i in range(len(norm) - 1)}
+
+    ga, gb = grams(a), grams(b)
+    if not ga or not gb:
+        return 0.0
+    return len(ga & gb) / len(ga | gb)
 
 
 def jaccard(a: frozenset[int], b: frozenset[int]) -> float:
@@ -153,6 +183,16 @@ def _pairs(
     return found
 
 
+def _is_duplicate_pair(a: DedupInput, b: DedupInput, body_similarity: float, config: DedupConfig) -> bool:
+    if body_similarity >= config.similarity_threshold:
+        return True
+    return (
+        config.title_threshold is not None
+        and body_similarity >= config.body_floor
+        and title_similarity(a.title, b.title) >= config.title_threshold
+    )
+
+
 def similar_pairs(
     docs: Sequence[DedupInput], config: DedupConfig, min_similarity: float | None = None
 ) -> list[tuple[str, str, float]]:
@@ -188,8 +228,10 @@ def deduplicate(docs: Sequence[DedupInput], config: DedupConfig) -> dict[str, De
         for other in same[1:]:
             union_find.union(same[0], other)
 
-    for a, b, _ in _pairs(docs, sets, config.max_day_gap, config.similarity_threshold):
-        union_find.union(a, b)
+    floor = config.similarity_threshold if config.title_threshold is None else config.body_floor
+    for a, b, similarity in _pairs(docs, sets, config.max_day_gap, floor):
+        if _is_duplicate_pair(by_id[a], by_id[b], similarity, config):
+            union_find.union(a, b)
 
     results: dict[str, DedupResult] = {}
     for group in union_find.groups():

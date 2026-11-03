@@ -77,7 +77,7 @@ def prepare(
             records.append(ProcessedRecord(status="excluded", excluded_reason=decision.reason.value, **common))
             stats.excluded_reasons[decision.reason.value] += 1
             continue
-        survivors.append(dedup.DedupInput(row["doc_id"], doc_type, text, row["published_at"]))
+        survivors.append(dedup.DedupInput(row["doc_id"], doc_type, text, row["published_at"], row["title"]))
         pending[row["doc_id"]] = dict(common, clean_text=text, content_hash=dedup.content_hash(text))
 
     results = dedup.deduplicate(survivors, dedup_config)
