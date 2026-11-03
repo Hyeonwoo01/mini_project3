@@ -239,11 +239,14 @@ ANSWER_COLUMNS = ["id", "type", "q", "answer_key", "answer", "refused", "retriev
                   "gold_doc_ids", "cited_gold_auto", "grade", "citation_ok", "note"]
 
 
-def evaluate_answers(items: Sequence[EvalItem], chain: SupportsAnswer) -> list[dict[str, Any]]:
+def evaluate_answers(items: Sequence[EvalItem], chain: SupportsAnswer,
+                     progress=lambda message: None) -> list[dict[str, Any]]:
     """문항별 답변. grade·citation_ok 는 비워 두고 직접 채점한다."""
     rows = []
-    for item in items:
+    for number, item in enumerate(items, start=1):
         result = chain.answer(item.q)
+        status = "거절" if result.refused else f"인용 {len(result.cited)}건"
+        progress(f"  [{number}/{len(items)}] {item.id} {result.latency_ms / 1000:.1f}초 · {status}")
         cited_docs = {result.chunks[n - 1].doc_id for n in result.cited}
         rows.append({
             "id": item.id,
@@ -382,7 +385,7 @@ def main() -> None:
         except RuntimeError as exc:
             raise SystemExit(str(exc)) from exc
         print(f"답변 생성 중: {len(items)}문항 (문항당 수 초)")
-        answer_rows = evaluate_answers(items, chain)
+        answer_rows = evaluate_answers(items, chain, progress=lambda message: print(message, flush=True))
         summary["answers"] = summarize_answers(answer_rows)
     config = {
         "tag": args.tag, "collection": collection, "k": args.k, "mode": mode,
