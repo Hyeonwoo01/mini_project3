@@ -11,17 +11,13 @@ from typing import Any
 
 
 class DocType(StrEnum):
-    """문서 종류. 주제 확정 후 사용하지 않는 종류는 삭제한다."""
+    """문서 종류 (주제 A: 지역 상권·소상공인 정책)."""
 
     NEWS = "news"                         # 제공 데이터
-    PRESS_RELEASE = "press_release"       # 부처·기관 보도자료
-    ANNOUNCEMENT = "announcement"         # 지자체 고시·사업 공고
-    POLICY_REPORT = "policy_report"       # 국책연구기관 정책보고서
-    LEGISLATION = "legislation"           # 국회 법안·검토보고서
-    INDUSTRY_REPORT = "industry_report"   # 산업·투자 보고서
-    PATENT = "patent"
-    DISCLOSURE = "disclosure"             # 상장사 공시·IR
-    BLOG = "blog"
+    PRESS_RELEASE = "press_release"       # 중기부·소진공·금융위 등 보도자료
+    ANNOUNCEMENT = "announcement"         # 서울시·자치구 상권 지원사업 공고
+    POLICY_REPORT = "policy_report"       # 국책·지자체 연구기관 보고서
+    BLOG = "blog"                         # 소상공인 체감 반응
 
 
 class SourceTier(StrEnum):
@@ -37,10 +33,6 @@ SOURCE_TIER: dict[DocType, SourceTier] = {
     DocType.PRESS_RELEASE: SourceTier.PRIMARY,
     DocType.ANNOUNCEMENT: SourceTier.PRIMARY,
     DocType.POLICY_REPORT: SourceTier.PRIMARY,
-    DocType.LEGISLATION: SourceTier.PRIMARY,
-    DocType.INDUSTRY_REPORT: SourceTier.PRIMARY,
-    DocType.PATENT: SourceTier.PRIMARY,
-    DocType.DISCLOSURE: SourceTier.PRIMARY,
     DocType.BLOG: SourceTier.USER_GENERATED,
 }
 
