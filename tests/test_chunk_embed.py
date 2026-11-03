@@ -138,3 +138,14 @@ def test_rebuild_after_chunk_text_change_updates_only_changed(env):
     assert (stats.added, stats.updated, stats.already_present) == (0, 3, 0)
     again = build_collection(get_chunk_config("c500-notitle"), "docs__c500", **kwargs)
     assert (again.added, again.updated, again.already_present) == (0, 0, 3)
+
+
+def test_full_collection_reads_are_paginated(env, monkeypatch):
+    import indexer.embed as embed_module
+    db, chroma, kwargs = env
+    build_collection(get_chunk_config("c500"), "docs__c500", **kwargs)
+    monkeypatch.setattr(embed_module, "GET_PAGE", 2)             # 3개 청크를 2개씩 나눠 읽게 한다
+    report = verify_collection("docs__c500", queries=(), chroma_dir=chroma, db_path=db)
+    assert (report.chunks, report.documents, report.missing_documents) == (3, 2, 0)
+    _seed(db, {"a": 12})
+    assert build_collection(get_chunk_config("c500"), "docs__c500", **kwargs).removed_stale == 1

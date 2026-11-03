@@ -33,6 +33,9 @@ from indexer.chunk import Chunk, ChunkConfig, ChunkSource, chunk_document
 
 ADD_BATCH = 256                 # 한 번에 임베딩·적재하는 청크 수
 PROGRESS_EVERY_SEC = 30         # 진행 상황 출력 간격 (멈춤을 바로 알아챌 수 있게)
+# 컬렉션 전체를 한 번에 읽으면 청크 5만 개 이상에서 Chroma 내부 SQLite 한도(too many SQL variables)에
+# 걸린다 (c500, 50,713개). 나눠 읽는다.
+GET_PAGE = 5_000
 SAMPLE_QUERIES = ("소상공인 정책자금 지원 규모", "지역화폐 예산 삭감 논란", "서울 골목상권 매출 변화")
 
 
@@ -89,6 +92,20 @@ def _collection_names(client: chromadb.ClientAPI) -> set[str]:
     return {c if isinstance(c, str) else c.name for c in client.list_collections()}
 
 
+def _get_all(col, include: list[str]) -> dict[str, list]:
+    """컬렉션 전체를 GET_PAGE 개씩 나눠 읽는다."""
+    result: dict[str, list] = {"ids": [], **{key: [] for key in include}}
+    offset = 0
+    while True:
+        page = col.get(include=include, limit=GET_PAGE, offset=offset)
+        if not page["ids"]:
+            return result
+        result["ids"].extend(page["ids"])
+        for key in include:
+            result[key].extend(page[key])
+        offset += len(page["ids"])
+
+
 def _make_chunks(conn: Connection, config: ChunkConfig, stats: BuildStats) -> list[Chunk]:
     chunks: list[Chunk] = []
     for source in iter_chunk_sources(conn):
@@ -139,7 +156,7 @@ def build_collection(
                          "--rebuild 로 다시 만드세요.")
 
     current_ids = {c.chunk_id for c in chunks}
-    stale = [chunk_id for chunk_id in col.get(include=[])["ids"] if chunk_id not in current_ids]
+    stale = [chunk_id for chunk_id in _get_all(col, include=[])["ids"] if chunk_id not in current_ids]
     for i in range(0, len(stale), ADD_BATCH * 20):
         col.delete(ids=stale[i:i + ADD_BATCH * 20])
     stats.removed_stale = len(stale)
@@ -209,7 +226,7 @@ def verify_collection(
     if collection not in _collection_names(client):
         raise SystemExit(f"컬렉션이 없습니다: {collection}. python -m indexer build 를 먼저 실행하세요.")
     col = client.get_collection(collection)
-    data = col.get(include=["documents", "metadatas"])
+    data = _get_all(col, include=["documents", "metadatas"])
     doc_ids = {m["doc_id"] for m in data["metadatas"]}
     with open_db(db_path, read_only=True) as conn:
         kept = {r[0] for r in conn.execute("SELECT doc_id FROM processed_documents WHERE status = 'kept'")}
