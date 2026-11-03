@@ -1,0 +1,83 @@
+{
+  "config": {
+    "tag": "baseline-c1000",
+    "collection": "docs__c1000",
+    "k": 5,
+    "max_chunks_per_doc": 1,
+    "collapse_same_title": true,
+    "collection_metadata": {
+      "include_title": true,
+      "chunk_overlap": 150,
+      "embedding_model": "text-embedding-3-small",
+      "chunk_config": "c1000",
+      "created_at": "2026-11-03T04:17:58+00:00",
+      "chunk_size": 1000
+    },
+    "eval_set_items": 30,
+    "git_commit": "c1e8bb6",
+    "chain": null,
+    "evaluated_at": "2026-11-03T16:15:39"
+  },
+  "overall": {
+    "count": 24,
+    "hit@1": 0.0833,
+    "hit@3": 0.3333,
+    "hit@5": 0.4583,
+    "mrr": 0.2215
+  },
+  "by_type": {
+    "comparison": {
+      "count": 4,
+      "hit@1": 0,
+      "hit@3": 0,
+      "hit@5": 0.25,
+      "mrr": 0.0625
+    },
+    "fact": {
+      "count": 10,
+      "hit@1": 0.1,
+      "hit@3": 0.4,
+      "hit@5": 0.6,
+      "mrr": 0.2733
+    },
+    "synthesis": {
+      "count": 4,
+      "hit@1": 0,
+      "hit@3": 0.25,
+      "hit@5": 0.25,
+      "mrr": 0.0833
+    },
+    "temporal": {
+      "count": 6,
+      "hit@1": 0.1667,
+      "hit@3": 0.5,
+      "hit@5": 0.5,
+      "mrr": 0.3333
+    }
+  },
+  "top_score": {
+    "answerable_hit": {
+      "count": 2,
+      "min": 0.636,
+      "median": 0.6411,
+      "max": 0.6461
+    },
+    "answerable_miss": {
+      "count": 13,
+      "min": 0.5049,
+      "median": 0.653,
+      "max": 0.6849
+    },
+    "unanswerable": {
+      "count": 6,
+      "min": 0.4383,
+      "median": 0.5436,
+      "max": 0.6826
+    }
+  },
+  "latency_ms": {
+    "mean": 180.4,
+    "p95": 226.4
+  },
+  "unanswerable_count": 6
+}
