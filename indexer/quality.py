@@ -197,20 +197,23 @@ class QualityConfig:
             raise ValueError(f"national_period_start 는 period_start 이후여야 합니다: {self.name}")
 
 
+_V1_RULES = dict(
+    min_chars={DocType.NEWS: 100},
+    max_chars={DocType.NEWS: 10_000},
+    lead_chars=300,
+    topic_terms=DEFAULT_TOPIC_TERMS,
+)
+
 QUALITY_CONFIGS: dict[str, QualityConfig] = {
-    # EDA 확정값 (2026-11-03, 제공 뉴스 76,344건 기준 → 기간 규칙 전 18,552건).
-    # 기간: 수집 기간 끝(2026-10-16) 기준 최근 2년 → 9,300건. 재배포본 처리 후 목표 5,000~8,000건.
-    #   - 5년 전체는 1차 자료(수백 건)가 검색에서 묻히고 청킹 실험 반복이 무거워진다.
-    #   - '서울 5년 + 전국 최근 1년'은 약 9,800건(추정)으로 더 크고 전국 정책 이력도 1년뿐이다.
-    #   - MP1·2 데이터 기준 시점(2026년 6~7월)과도 맞는다.
-    "v1": QualityConfig(
-        name="v1",
-        period_start=date(2024, 10, 16),
-        min_chars={DocType.NEWS: 100},
-        max_chars={DocType.NEWS: 10_000},
-        lead_chars=300,
-        topic_terms=DEFAULT_TOPIC_TERMS,
-    ),
+    # EDA 확정값 (2026-11-03, 제공 뉴스 76,344건 → 재배포본 처리 전 18,552건).
+    # 기간: 제공 기간 5년 전체. 시점·변화 질문과 시기별로 입장이 갈린 상충 근거
+    # (예: 지역화폐 국비 축소와 확대)를 다루려면 이력이 필요하다.
+    # 오래된 정보로 답하는 위험은 발행일 메타데이터·프롬프트의 최신 우선 규칙·기간 필터로 다루고,
+    # 평가셋의 시점 문항으로 측정한다. 1차 자료가 뉴스에 묻히는 문제는 기간을 줄여도 비율이
+    # 그대로이므로 검색 단계(문서 종류별 배분)에서 다룬다.
+    "v1": QualityConfig(name="v1", period_start=date(2021, 10, 16), **_V1_RULES),
+    # 비교 실험용: 수집 기간 끝 기준 최근 2년 (재배포본 처리 전 9,300건)
+    "v1-2y": QualityConfig(name="v1-2y", period_start=date(2024, 10, 16), **_V1_RULES),
 }
 
 
