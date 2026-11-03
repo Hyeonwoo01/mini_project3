@@ -1,7 +1,7 @@
 """검색·답변 품질 측정.
 
-    python -m eval.run_eval --tag baseline --collection docs__baseline
-    python -m eval.run_eval --tag baseline --collection docs__baseline --with-answers
+    python -m eval.run_eval --tag c500 --collection docs__c500
+    python -m eval.run_eval --tag c500 --collection docs__c500 --with-answers
     python -m eval.run_eval --check      # 평가셋 형식·유형 구성·정답 문서 존재 여부만 검사
 
 평가셋 형식 (eval/eval_set.jsonl, 한 줄에 한 문항):

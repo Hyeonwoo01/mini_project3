@@ -59,6 +59,8 @@ CHUNK_METADATA_FIELDS: tuple[str, ...] = (
     "published_at",
     "published_ymd",
     "collected_at",
+    "source_tier",   # SourceTier 값 — 프롬프트·UI 에서 출처 신뢰도 구분
+    "scope",         # 뉴스 범위 (seoul/national), 해당 없으면 빈 문자열 — UI 필터
 )
 
 

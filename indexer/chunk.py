@@ -1,17 +1,24 @@
 """문서 종류별 청킹 (가이드 4-4).
 
 필수 수행 사항
-- 청크 본문에 문서 제목을 포함한다
-- 청크 길이 분포를 확인한다 (과소·과다 청크 점검)
+- 청크 본문에 문서 제목을 포함한다 (청크만으로는 출처 문서를 식별할 수 없다)
+- 청크 길이 분포를 확인한다 (`python -m indexer build --dry-run` 이 분포를 출력한다)
 - 둘 이상의 설정을 구성하고 평가셋 Hit@3 으로 비교하여 선택 근거를 기록한다
 
-청크 크기 단위(문자 수/토큰 수)와 문서 종류별 설정값은 EDA 결과를 근거로 정한다.
-법령(law)은 구조가 고정되어 있으므로 크기 기준이 아니라 조문 단위로 분할하고 조문 번호를 보존한다.
+크기 단위는 문자 수다. 정제 뉴스 본문은 중앙값 약 950자, 하위 5% 360자, 상위 1% 5,300자이므로
+(EDA 3번) 500자 설정은 기사 하나를 2~3개로, 1000자 설정은 대부분 1~2개로 나눈다.
+chunk_size 는 제목을 제외한 본문 기준이다.
+법령(law)은 크기 기준이 아니라 조문 단위로 분할한다 (법령 수집 후 구현).
 """
 
 from dataclasses import dataclass, field
 
-from common.schema import DocType
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+from common.schema import SOURCE_TIER, DocType
+
+# 문단 → 줄 → 문장 → 쉼표 → 공백 순으로 자를 곳을 찾는다. 문장부호는 앞 문장에 붙여 둔다.
+SEPARATORS = ["\n\n", "\n", ". ", "? ", "! ", ", ", " ", ""]
 
 
 @dataclass(frozen=True)
@@ -24,12 +31,21 @@ class ChunkConfig:
     overrides: dict[DocType, tuple[int, int]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        if self.chunk_size <= 0 or not 0 <= self.chunk_overlap < self.chunk_size:
+        sizes = [(self.chunk_size, self.chunk_overlap), *self.overrides.values()]
+        if any(size <= 0 or not 0 <= overlap < size for size, overlap in sizes):
             raise ValueError(f"잘못된 청킹 설정: {self}")
 
+    def sizes_for(self, doc_type: DocType) -> tuple[int, int]:
+        return self.overrides.get(doc_type, (self.chunk_size, self.chunk_overlap))
 
-# EDA 후 확정한다. 실험 이름이 컬렉션 이름(docs__<name>)과 eval/results 태그로 이어진다.
-CHUNK_CONFIGS: dict[str, ChunkConfig] = {}
+
+# 실험 이름이 컬렉션 이름(docs__<name>)과 eval/results 태그로 이어진다.
+CHUNK_CONFIGS: dict[str, ChunkConfig] = {
+    "c500": ChunkConfig(name="c500", chunk_size=500, chunk_overlap=100),
+    "c1000": ChunkConfig(name="c1000", chunk_size=1000, chunk_overlap=150),
+    # 제목 포함 효과를 재는 비교 실험용 (가이드 4-4: 제목 포함 여부가 검색 정확도에 유의미한 차이)
+    "c500-notitle": ChunkConfig(name="c500-notitle", chunk_size=500, chunk_overlap=100, include_title=False),
+}
 
 
 def get_chunk_config(name: str) -> ChunkConfig:
@@ -38,3 +54,64 @@ def get_chunk_config(name: str) -> ChunkConfig:
     except KeyError:
         available = ", ".join(CHUNK_CONFIGS) or "(없음)"
         raise SystemExit(f"알 수 없는 청킹 설정: {name}. 사용 가능: {available}") from None
+
+
+@dataclass(frozen=True)
+class ChunkSource:
+    """청킹 대상 문서 (processed_documents 의 kept 문서 + documents 메타데이터)."""
+
+    doc_id: str
+    doc_type: DocType
+    title: str
+    text: str
+    source: str
+    url: str
+    published_at: str | None
+    collected_at: str
+    scope: str | None = None
+
+
+@dataclass(frozen=True)
+class Chunk:
+    chunk_id: str
+    doc_id: str
+    text: str                     # 임베딩·검색에 쓰는 텍스트 (제목 포함 설정이면 제목 + 본문)
+    body: str                     # 제목을 뺀 본문 조각 (길이 분포 확인용)
+    metadata: dict[str, str | int]
+
+
+def _published_ymd(published_at: str | None) -> int:
+    """Chroma 의 범위 필터는 숫자에만 동작하므로 YYYYMMDD 정수로 저장한다. 미상은 0."""
+    if not published_at or len(published_at) < 10:
+        return 0
+    digits = published_at[:10].replace("-", "")
+    return int(digits) if digits.isdigit() else 0
+
+
+def chunk_document(doc: ChunkSource, config: ChunkConfig) -> list[Chunk]:
+    size, overlap = config.sizes_for(doc.doc_type)
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=size, chunk_overlap=overlap, separators=SEPARATORS, keep_separator="end",
+        strip_whitespace=True,
+    )
+    bodies = [b for b in splitter.split_text(doc.text) if b.strip()]
+    chunks = []
+    for index, body in enumerate(bodies):
+        chunk_id = f"{doc.doc_id}#{index:03d}"
+        metadata: dict[str, str | int] = {
+            "chunk_id": chunk_id,
+            "chunk_index": index,
+            "doc_id": doc.doc_id,
+            "doc_type": doc.doc_type.value,
+            "source": doc.source,
+            "title": doc.title,
+            "url": doc.url,
+            "published_at": doc.published_at or "",   # Chroma 메타데이터는 None 을 저장할 수 없다
+            "published_ymd": _published_ymd(doc.published_at),
+            "collected_at": doc.collected_at,
+            "source_tier": SOURCE_TIER[doc.doc_type].value,
+            "scope": doc.scope or "",
+        }
+        text = f"{doc.title}\n\n{body}" if config.include_title else body
+        chunks.append(Chunk(chunk_id=chunk_id, doc_id=doc.doc_id, text=text, body=body, metadata=metadata))
+    return chunks

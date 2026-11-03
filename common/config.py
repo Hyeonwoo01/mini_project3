@@ -66,7 +66,7 @@ def get_settings() -> Settings:
         eval_results_dir=PROJECT_ROOT / "eval" / "results",
         chat_model=_env("OPENAI_CHAT_MODEL", "gpt-4o-mini"),
         embedding_model=_env("EMBEDDING_MODEL", "text-embedding-3-small"),
-        chroma_collection=_env("CHROMA_COLLECTION", "docs__baseline"),
+        chroma_collection=_env("CHROMA_COLLECTION", "docs__c500"),
         crawl_delay_sec=_parse_crawl_delay(_env("CRAWL_DELAY_SEC", "1.5")),
         crawler_user_agent=_env("CRAWLER_USER_AGENT", "mini-project3-edu-crawler/0.1"),
     )

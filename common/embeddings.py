@@ -13,4 +13,5 @@ from common.config import get_settings, require_env
 
 def get_embedding_model() -> Embeddings:
     require_env("OPENAI_API_KEY")
-    return OpenAIEmbeddings(model=get_settings().embedding_model)
+    # 공용 키라 호출 한도(429)에 걸리기 쉬워 재시도를 넉넉히 둔다.
+    return OpenAIEmbeddings(model=get_settings().embedding_model, max_retries=6)

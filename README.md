@@ -187,18 +187,28 @@ python -m indexer prepare
 python -m indexer prepare --quality none
 ```
 
+먼저 `--dry-run` 으로 청크 수·길이 분포를 확인한 뒤 임베딩한다. 중간에 API 오류로 멈추면 같은 명령을 다시 실행하면 이어서 적재한다.
+
 ```bash
-python -m indexer build --chunk-config baseline
+python -m indexer build --chunk-config c500 --dry-run
 ```
 
 ```bash
-python -m indexer verify --collection docs__baseline
+python -m indexer build --chunk-config c500
+```
+
+```bash
+python -m indexer build --chunk-config c1000
+```
+
+```bash
+python -m indexer verify --collection docs__c500
 ```
 
 **평가** — 결과: `eval/results/<일시>_<태그>/`
 
 ```bash
-python -m eval.run_eval --tag baseline --collection docs__baseline
+python -m eval.run_eval --tag c500 --collection docs__c500
 ```
 
 **④ 챗봇** — 인덱싱을 다시 실행하지 않고 단독으로 구동된다
@@ -242,9 +252,10 @@ pytest
 - [x] 정제·품질 필터·중복 처리 (`indexer prepare`)
 - [ ] 중복 처리 임계값 확정 (EDA 12번), 대표 질문 확정
 - [ ] 직접 수집 (1차 자료)
-- [ ] 원본 파일 파싱, 청킹 (설정 2개 이상)
+- [x] 청킹 설정 2개 (c500·c1000) + 제목 제외 비교 설정, 임베딩·적재·검증 (`indexer build/verify`)
+- [ ] 원본 파일(1차 자료) 파싱
 - [ ] 평가셋 작성
-- [ ] 임베딩·Chroma 적재 및 검증
+- [ ] 실제 임베딩 적재 및 검증 (API 키 필요)
 - [ ] 검색기·평가 하네스 1차 측정
 - [ ] RAG 체인·거절 로직·출처 표기
 - [ ] Streamlit 챗 UI
