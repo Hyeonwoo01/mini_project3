@@ -59,7 +59,7 @@ def load_eval_set(path: Path) -> list[EvalItem]:
     """평가셋을 읽고 형식을 검증한다. 오류가 있으면 줄 번호와 함께 실패한다."""
     items: list[EvalItem] = []
     seen_ids: set[str] = set()
-    for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+    for line_no, line in enumerate(path.read_text(encoding="utf-8-sig").splitlines(), start=1):
         if not line.strip():
             continue
         try:

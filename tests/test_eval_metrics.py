@@ -191,3 +191,11 @@ def test_evaluate_and_summarize_answers(tmp_path):
     with path.open(encoding="utf-8-sig", newline="") as f:
         written = list(csv.DictReader(f))
     assert written[0]["grade"] == "" and "[1] d1 (2025-12-16, d1, 유사도 0.700)" in written[0]["sources"]
+
+
+def test_load_eval_set_accepts_bom_and_crlf(tmp_path):
+    # Windows 메모장은 UTF-8 저장 시 BOM 을 붙인다
+    row = {"id": "f001", "q": "질문", "type": "fact", "gold_doc_ids": ["news_1"], "answer_key": "답"}
+    path = tmp_path / "eval_set.jsonl"
+    path.write_bytes((json.dumps(row, ensure_ascii=False) + "\r\n").encode("utf-8-sig"))
+    assert [item.id for item in load_eval_set(path)] == ["f001"]
