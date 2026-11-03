@@ -1,0 +1,29 @@
+# --- Secrets (가이드 4-1: API 키는 저장소에 포함하지 않는다) ---
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# --- 데이터 (제공 데이터·크롤링 원본은 용량·재배포 문제로 커밋하지 않는다) ---
+data/provided/*
+data/raw/*
+!data/provided/.gitkeep
+!data/raw/.gitkeep
+
+# --- ③ 저장 계층 (인덱서 실행으로 재생성되는 산출물) ---
+store/*
+!store/.gitkeep
+
+# --- OS / IDE ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
