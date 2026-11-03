@@ -31,6 +31,8 @@ class Settings:
     chat_model: str
     embedding_model: str
     chroma_collection: str
+    rag_top_k: int              # 답변 근거로 넣을 검색 결과 수
+    rag_min_score: float        # 이 유사도 미만인 검색 결과는 근거로 쓰지 않는다 (모두 미만이면 거절)
 
     # 크롤링
     crawl_delay_sec: float
@@ -40,6 +42,26 @@ class Settings:
 def _env(name: str, default: str) -> str:
     value = os.getenv(name, "").strip()
     return value or default
+
+
+def _parse_top_k(raw: str) -> int:
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ValueError(f"RAG_TOP_K 는 정수여야 합니다: {raw!r}") from exc
+    if not 1 <= value <= 20:
+        raise ValueError(f"RAG_TOP_K 는 1~20 이어야 합니다: {value}")
+    return value
+
+
+def _parse_min_score(raw: str) -> float:
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise ValueError(f"RAG_MIN_SCORE 는 숫자여야 합니다: {raw!r}") from exc
+    if not 0.0 <= value < 1.0:
+        raise ValueError(f"RAG_MIN_SCORE 는 0 이상 1 미만이어야 합니다: {value}")
+    return value
 
 
 def _parse_crawl_delay(raw: str) -> float:
@@ -67,6 +89,8 @@ def get_settings() -> Settings:
         chat_model=_env("OPENAI_CHAT_MODEL", "gpt-4o-mini"),
         embedding_model=_env("EMBEDDING_MODEL", "text-embedding-3-small"),
         chroma_collection=_env("CHROMA_COLLECTION", "docs__c500"),
+        rag_top_k=_parse_top_k(_env("RAG_TOP_K", "5")),
+        rag_min_score=_parse_min_score(_env("RAG_MIN_SCORE", "0.4")),
         crawl_delay_sec=_parse_crawl_delay(_env("CRAWL_DELAY_SEC", "1.5")),
         crawler_user_agent=_env("CRAWLER_USER_AGENT", "mini-project3-edu-crawler/0.1"),
     )

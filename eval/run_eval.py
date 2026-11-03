@@ -14,13 +14,16 @@ id 는 실험 간 같은 문항을 대조하는 키이므로 문항을 수정·�
     retrieval.jsonl  문항별 검색 결과·정답 순위·점수·응답 시간
     summary.json     설정(컬렉션·임베딩 모델·청킹 설정·k·커밋)과 Hit@1·Hit@3·Hit@k·MRR, 유형별 집계,
                      정답/답변 불가 문항의 최고 유사도 분포 (거절 임계값 설정 근거)
-    answers.csv      --with-answers 시 생성 (RAG 체인 구현 후). 직접 채점용
+    answers.csv      --with-answers 시 생성. 챗봇과 같은 rag.chain 으로 만든 답변과 근거 목록.
+                     grade(정확·부분 정확·오답)와 citation_ok(출처 정확성)는 직접 채점한다 (가이드 4-3).
+                     거절 정확도·잘못된 거절은 summary.json 에 자동 집계한다.
 
 검색은 챗봇과 같은 rag.retriever.Retriever 로 한다. 평가한 검색기와 서비스하는 검색기가 같아야
 평가가 유효하다 (가이드 4-2). 검색 결과는 문서 단위(문서당 청크 1개)로 순위를 매긴다.
 """
 
 import argparse
+import csv
 import json
 import math
 import re
@@ -37,6 +40,7 @@ from typing import Any, Protocol
 
 from common.config import PROJECT_ROOT, get_settings
 from common.docstore import open_db
+from rag.chain import RagChain, RagResult, get_chain
 from rag.retriever import RetrievedChunk, Retriever
 
 QUESTION_TYPES = ("fact", "comparison", "temporal", "synthesis", "unanswerable")
@@ -221,6 +225,66 @@ def summarize(records: Sequence[dict[str, Any]], k: int) -> dict[str, Any]:
     }
 
 
+class SupportsAnswer(Protocol):
+    def answer(self, question: str) -> RagResult: ...
+
+
+ANSWER_COLUMNS = ["id", "type", "q", "answer_key", "answer", "refused", "retrieval_refused", "cited", "sources",
+                  "gold_doc_ids", "cited_gold_auto", "grade", "citation_ok", "note"]
+
+
+def evaluate_answers(items: Sequence[EvalItem], chain: SupportsAnswer) -> list[dict[str, Any]]:
+    """문항별 답변. grade·citation_ok 는 비워 두고 직접 채점한다."""
+    rows = []
+    for item in items:
+        result = chain.answer(item.q)
+        cited_docs = {result.chunks[n - 1].doc_id for n in result.cited}
+        rows.append({
+            "id": item.id,
+            "type": item.type,
+            "q": item.q,
+            "answer_key": item.answer_key,
+            "answer": result.answer,
+            "refused": result.refused,
+            "retrieval_refused": result.retrieval_refused,
+            "cited": " ".join(f"[{n}]" for n in result.cited),
+            "sources": "\n".join(
+                f"[{i}] {c.metadata.get('title', '')} ({str(c.metadata.get('published_at', ''))[:10]}, {c.doc_id}, "
+                f"유사도 {c.score:.3f})" for i, c in enumerate(result.chunks, start=1)),
+            "gold_doc_ids": " ".join(item.gold_doc_ids),
+            # 인용한 근거 중 정답 문서가 있는지 (자동 참고값. 최종 출처 정확성은 직접 판단한다)
+            "cited_gold_auto": bool(cited_docs & set(item.gold_doc_ids)) if item.gold_doc_ids else None,
+            "grade": "", "citation_ok": "", "note": "",
+            "latency_ms": round(result.latency_ms, 1),
+        })
+    return rows
+
+
+def summarize_answers(rows: Sequence[dict[str, Any]]) -> dict[str, Any]:
+    answerable = [r for r in rows if r["type"] != "unanswerable"]
+    unanswerable = [r for r in rows if r["type"] == "unanswerable"]
+    answered = [r for r in answerable if not r["refused"]]
+    rate = lambda hits, total: round(hits / total, 4) if total else None  # noqa: E731
+    latencies = sorted(r["latency_ms"] for r in rows)
+    return {
+        "refusal_accuracy": rate(sum(r["refused"] for r in unanswerable), len(unanswerable)),
+        "false_refusal_rate": rate(sum(r["refused"] for r in answerable), len(answerable)),
+        "citation_rate": rate(sum(bool(r["cited"]) for r in answered), len(answered)),
+        "cited_gold_rate_auto": rate(sum(bool(r["cited_gold_auto"]) for r in answered), len(answered)),
+        "counts": {"answerable": len(answerable), "unanswerable": len(unanswerable), "answered": len(answered)},
+        "latency_ms": {"mean": round(mean(latencies), 1), "p95": latencies[max(math.ceil(0.95 * len(latencies)) - 1, 0)]}
+        if latencies else {},
+    }
+
+
+def write_answers_csv(rows: Sequence[dict[str, Any]], path: Path) -> None:
+    # 엑셀에서 한글이 깨지지 않도록 BOM 을 붙인다.
+    with path.open("w", encoding="utf-8-sig", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=ANSWER_COLUMNS, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(rows)
+
+
 def _git_commit() -> str | None:
     try:
         out = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=PROJECT_ROOT, capture_output=True,
@@ -247,6 +311,7 @@ def save_results(records: Sequence[dict[str, Any]], summary: dict[str, Any], con
 def format_summary(summary: dict[str, Any], k: int) -> str:
     lines = []
     overall = summary["overall"]
+    answers = summary.get("answers")
     if overall["count"]:
         lines.append(f"[검색 평가] 답변 가능 {overall['count']}문항 · 답변 불가 {summary['unanswerable_count']}문항")
         lines.append(f"  전체        Hit@1 {overall['hit@1']:.3f}  Hit@3 {overall['hit@3']:.3f}  "
@@ -264,6 +329,13 @@ def format_summary(summary: dict[str, Any], k: int) -> str:
                          f"최대 {stats['max']:.3f}, {stats['count']}문항)")
     if summary["latency_ms"]:
         lines.append(f"  검색 응답 시간 평균 {summary['latency_ms']['mean']:.0f}ms · p95 {summary['latency_ms']['p95']:.0f}ms")
+    if answers:
+        pct = lambda v: "-" if v is None else f"{v:.1%}"  # noqa: E731
+        lines.append(f"[답변 평가] 거절 정확도 {pct(answers['refusal_accuracy'])} (답변 불가 문항) · "
+                     f"잘못된 거절 {pct(answers['false_refusal_rate'])} (답변 가능 문항)")
+        lines.append(f"  출처 표기율 {pct(answers['citation_rate'])} · 정답 문서 인용률(자동) {pct(answers['cited_gold_rate_auto'])}"
+                     f" · 응답 시간 평균 {answers['latency_ms'].get('mean', 0) / 1000:.1f}초")
+        lines.append("  answers.csv 의 grade(정확/부분/오답)·citation_ok 를 직접 채점하세요.")
     return "\n".join(lines)
 
 
@@ -282,8 +354,6 @@ def main() -> None:
         parser.error("--tag 가 필요합니다 (평가 실행 시)")
     if args.k < 3:
         parser.error("--k 는 3 이상이어야 합니다 (Hit@3 계산)")
-    if args.with_answers:
-        raise SystemExit("답변 생성 평가는 RAG 체인(rag/chain.py) 구현 후 지원합니다.")
 
     items = load_eval_set(settings.eval_set_path)
     if not items:
@@ -296,14 +366,28 @@ def main() -> None:
 
     records = evaluate_retrieval(items, retriever, args.k)
     summary = summarize(records, args.k)
+    answer_rows: list[dict[str, Any]] = []
+    chain: RagChain | None = None
+    if args.with_answers:
+        try:
+            chain = get_chain(collection)
+        except RuntimeError as exc:
+            raise SystemExit(str(exc)) from exc
+        print(f"답변 생성 중: {len(items)}문항 (문항당 수 초)")
+        answer_rows = evaluate_answers(items, chain)
+        summary["answers"] = summarize_answers(answer_rows)
     config = {
         "tag": args.tag, "collection": collection, "k": args.k,
         "max_chunks_per_doc": retriever.max_chunks_per_doc, "collapse_same_title": retriever.collapse_same_title,
         "collection_metadata": retriever.collection_metadata,
         "eval_set_items": len(items), "git_commit": _git_commit(),
+        "chain": {"top_k": chain.config.top_k, "min_score": chain.config.min_score,
+                  "chat_model": settings.chat_model} if chain else None,
         "evaluated_at": datetime.now().isoformat(timespec="seconds"),
     }
     out = save_results(records, summary, config, args.tag, settings.eval_results_dir)
+    if answer_rows:
+        write_answers_csv(answer_rows, out / "answers.csv")
     print(format_summary(summary, args.k))
     print(f"  결과 저장: {out.relative_to(PROJECT_ROOT)}")
 

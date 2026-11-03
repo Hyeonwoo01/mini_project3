@@ -1,54 +1,186 @@
 """LangChain 기반 RAG 체인 — app 과 eval 의 유일한 호출 지점.
 
-    app : chunks = retrieve_context(...)      # 검색 진행 상태 표시
-          st.write_stream(stream_answer(...))  # 스트리밍 출력
-    eval: result = answer(...)                 # 같은 두 함수를 순서대로 호출
+    app : chain = get_chain()
+          chunks = chain.retrieve_context(question, history, filters=...)   # 검색 진행 상태 표시
+          st.write_stream(chain.stream_answer(question, chunks, history))   # 스트리밍 출력
+    eval: result = get_chain(collection).answer(question)                   # 같은 두 단계를 순서대로 호출
 
-멀티턴: history 는 생성 단계에 전달한다. 검색 쿼리에 대화 맥락을 반영하는 것은
-심화 확장(질의 재작성)으로 다루며, 적용 시 retrieve_context 안에서만 처리한다.
+거절은 두 단계다 (가이드 4-6, 4-9).
+1. 검색 단계: 유사도가 RAG_MIN_SCORE 미만인 결과는 근거에서 뺀다. 남는 근거가 없으면 LLM 을 부르지 않고
+   REFUSAL_MESSAGE 로 답한다.
+2. 생성 단계: 근거가 있어도 질문에 답할 내용이 없으면 프롬프트 규칙에 따라 LLM 이 REFUSAL_MESSAGE 만 답한다.
+
+멀티턴: 대화 이력은 최근 MAX_HISTORY_TURNS 턴만 생성 단계에 넣는다. 검색 질의에는 직전 사용자 질문을
+덧붙여 "그럼 작년은?" 같은 후속 질문도 주제를 잃지 않게 한다 (기본 대응. LLM 으로 질의를 다시 쓰는 것은
+심화 확장 '질의 재작성'으로 다룬다).
+
+답변의 [n] 은 chunks[n-1] 에 대응한다. 답변에 실제로 인용된 번호는 RagResult.cited 로 확인한다.
 """
 
+import re
+import time
 from collections.abc import Iterator, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import date
+from functools import lru_cache
 
-from rag.retriever import RetrievedChunk, SearchFilters
+from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_openai import ChatOpenAI
+
+from common.config import get_settings, require_env
+from rag.prompts import REFUSAL_MESSAGE, SYSTEM_PROMPT, USER_PROMPT_TEMPLATE
+from rag.retriever import RetrievedChunk, Retriever, SearchFilters
 
 # (role, content) — role 은 "user" 또는 "assistant"
 ChatHistory = Sequence[tuple[str, str]]
+
+MAX_HISTORY_TURNS = 3
+_CITATION = re.compile(r"\[(\d{1,2})\]")
+
+
+@dataclass(frozen=True)
+class ChainConfig:
+    top_k: int = 5
+    min_score: float = 0.4
+
+    def __post_init__(self) -> None:
+        if self.top_k < 1 or not 0.0 <= self.min_score < 1.0:
+            raise ValueError(f"잘못된 체인 설정: {self}")
 
 
 @dataclass(frozen=True)
 class RagResult:
     answer: str
     refused: bool
-    chunks: list[RetrievedChunk]  # 답변의 [n] 번호는 chunks[n-1] 에 대응한다
+    chunks: list[RetrievedChunk]          # 답변의 [n] 번호는 chunks[n-1] 에 대응한다
+    cited: list[int] = field(default_factory=list)   # 답변에 실제로 나온 근거 번호
+    retrieval_refused: bool = False       # 근거가 임계값을 넘지 못해 LLM 호출 없이 거절했는지
+    latency_ms: float = 0.0
+
+
+def is_refusal(answer: str) -> bool:
+    """근거 없음 거절인지. 부분 답변('…은 제공된 자료에서 확인되지 않는다')은 거절이 아니다."""
+    return answer.strip().startswith(REFUSAL_MESSAGE.rstrip("."))
+
+
+def cited_numbers(answer: str, n_chunks: int) -> list[int]:
+    """답변에 나온 [n] 중 실제 근거 범위 안의 번호를 처음 나온 순서대로."""
+    seen: list[int] = []
+    for match in _CITATION.finditer(answer):
+        number = int(match.group(1))
+        if 1 <= number <= n_chunks and number not in seen:
+            seen.append(number)
+    return seen
+
+
+def format_context(chunks: Sequence[RetrievedChunk]) -> str:
+    """번호·제목·발행처·출처 종류·발행일을 붙인 근거 목록. 번호가 답변의 [n] 이 된다."""
+    blocks = []
+    for number, chunk in enumerate(chunks, start=1):
+        meta = chunk.metadata
+        published = str(meta.get("published_at", ""))[:10] or "발행일 미상"
+        header = f"[{number}] {meta.get('title', '')} | {meta.get('source', '')} | {meta.get('source_tier', '')} | {published}"
+        blocks.append(f"{header}\n{chunk.text}")
+    return "\n\n".join(blocks)
+
+
+def _history_messages(history: ChatHistory) -> list[BaseMessage]:
+    messages: list[BaseMessage] = []
+    for role, content in list(history)[-MAX_HISTORY_TURNS * 2:]:
+        if role == "user":
+            messages.append(HumanMessage(content))
+        elif role == "assistant":
+            messages.append(AIMessage(content))
+        else:
+            raise ValueError(f"알 수 없는 role: {role!r}")
+    return messages
+
+
+def retrieval_query(question: str, history: ChatHistory) -> str:
+    """직전 사용자 질문을 덧붙인 검색 질의. 이력이 없으면 질문 그대로."""
+    previous = next((content for role, content in reversed(list(history)) if role == "user"), None)
+    return f"{previous} {question}" if previous else question
+
+
+class RagChain:
+    def __init__(self, retriever: Retriever, llm: BaseChatModel, config: ChainConfig) -> None:
+        self.retriever = retriever
+        self.config = config
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", SYSTEM_PROMPT),
+            MessagesPlaceholder("history"),
+            ("human", USER_PROMPT_TEMPLATE),
+        ])
+        self._generate = prompt | llm | StrOutputParser()
+
+    def retrieve_context(
+        self, question: str, history: ChatHistory = (), *, filters: SearchFilters | None = None
+    ) -> list[RetrievedChunk]:
+        """검색 후 유사도 임계값 미만을 뺀다. 빈 리스트는 근거 없음(거절)을 뜻한다."""
+        chunks = self.retriever.retrieve(retrieval_query(question, history), k=self.config.top_k, filters=filters)
+        return [c for c in chunks if c.score >= self.config.min_score]
+
+    def stream_answer(self, question: str, chunks: list[RetrievedChunk], history: ChatHistory = ()) -> Iterator[str]:
+        """chunks 가 비어 있으면 LLM 을 호출하지 않고 REFUSAL_MESSAGE 를 내보낸다."""
+        if not chunks:
+            yield REFUSAL_MESSAGE
+            return
+        yield from self._generate.stream({
+            "history": _history_messages(history),
+            "context": format_context(chunks),
+            "question": question,
+            "today": date.today().isoformat(),
+        })
+
+    def answer(
+        self, question: str, history: ChatHistory = (), *, filters: SearchFilters | None = None
+    ) -> RagResult:
+        started = time.perf_counter()
+        chunks = self.retrieve_context(question, history, filters=filters)
+        text = "".join(self.stream_answer(question, chunks, history)).strip()
+        return RagResult(
+            answer=text,
+            refused=not chunks or is_refusal(text),
+            chunks=chunks,
+            cited=cited_numbers(text, len(chunks)),
+            retrieval_refused=not chunks,
+            latency_ms=(time.perf_counter() - started) * 1000,
+        )
+
+
+def get_chat_model() -> BaseChatModel:
+    require_env("OPENAI_API_KEY")
+    # 근거 문서에 충실하도록 temperature 0. 공용 키라 응답 지연·호출 한도에 대비해 제한 시간과 재시도를 둔다.
+    return ChatOpenAI(model=get_settings().chat_model, temperature=0, timeout=60, max_retries=3)
+
+
+@lru_cache(maxsize=4)
+def get_chain(collection: str | None = None) -> RagChain:
+    """설정(CHROMA_COLLECTION, RAG_TOP_K, RAG_MIN_SCORE)을 쓰는 체인. 챗봇·평가 하네스가 공유한다."""
+    settings = get_settings()
+    return RagChain(
+        retriever=Retriever(collection or settings.chroma_collection),
+        llm=get_chat_model(),
+        config=ChainConfig(top_k=settings.rag_top_k, min_score=settings.rag_min_score),
+    )
 
 
 def retrieve_context(
-    question: str,
-    history: ChatHistory = (),
-    *,
-    filters: SearchFilters | None = None,
-    collection: str | None = None,
+    question: str, history: ChatHistory = (), *, filters: SearchFilters | None = None, collection: str | None = None
 ) -> list[RetrievedChunk]:
-    """검색 후 유사도 임계값을 적용한다. 빈 리스트는 근거 없음(거절)을 뜻한다."""
-    raise NotImplementedError
+    return get_chain(collection).retrieve_context(question, history, filters=filters)
 
 
 def stream_answer(
-    question: str,
-    chunks: list[RetrievedChunk],
-    history: ChatHistory = (),
+    question: str, chunks: list[RetrievedChunk], history: ChatHistory = (), *, collection: str | None = None
 ) -> Iterator[str]:
-    """chunks 가 비어 있으면 LLM 을 호출하지 않고 REFUSAL_MESSAGE 를 내보낸다."""
-    raise NotImplementedError
+    return get_chain(collection).stream_answer(question, chunks, history)
 
 
 def answer(
-    question: str,
-    history: ChatHistory = (),
-    *,
-    filters: SearchFilters | None = None,
-    collection: str | None = None,
+    question: str, history: ChatHistory = (), *, filters: SearchFilters | None = None, collection: str | None = None
 ) -> RagResult:
-    raise NotImplementedError
+    return get_chain(collection).answer(question, history, filters=filters)

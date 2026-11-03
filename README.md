@@ -217,6 +217,12 @@ python -m eval.run_eval --tag c1000 --collection docs__c1000
 python -m eval.run_eval --tag c500 --collection docs__c500
 ```
 
+답변까지 생성해 거절 정확도를 집계하고, 직접 채점용 `answers.csv` 를 만든다 (챗봇과 같은 `rag.chain` 사용).
+
+```bash
+python -m eval.run_eval --tag c1000-answers --collection docs__c1000 --with-answers
+```
+
 **④ 챗봇** — 인덱싱을 다시 실행하지 않고 단독으로 구동된다
 
 ```bash
@@ -265,7 +271,8 @@ pytest
 - [ ] 실제 임베딩 적재 및 검증 (API 키 필요)
 - [x] 검색기(`rag/retriever.py`)·검색 평가 하네스(`eval/run_eval.py`)
 - [ ] 1차 측정 (평가셋 작성 후)
-- [ ] RAG 체인·거절 로직·출처 표기
+- [x] RAG 체인·거절 로직(유사도 임계값 + 프롬프트)·출처 번호 표기, 답변 평가(`--with-answers`)
+- [ ] 거절 임계값(`RAG_MIN_SCORE`) 조정 (1차 측정 후)
 - [ ] Streamlit 챗 UI
 - [ ] 직접 채점, 개선 및 재측정
 - [ ] 평가 결과 시각화

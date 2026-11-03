@@ -148,3 +148,46 @@ def test_latency_p95_uses_nearest_rank():
     from eval.run_eval import summarize
     records = [{"gold_doc_ids": [], "top_score": 0.1, "latency_ms": ms, "type": "unanswerable"} for ms in (4.0, 6.0)]
     assert summarize(records, k=5)["latency_ms"] == {"mean": 5.0, "p95": 6.0}
+
+
+class _FakeChain:
+    def __init__(self, results):
+        self.results = results
+
+    def answer(self, question):
+        return self.results[question]
+
+
+def _answer_fixture():
+    from rag.chain import RagResult
+    from rag.prompts import REFUSAL_MESSAGE
+    from rag.retriever import RetrievedChunk
+    chunk = lambda d: RetrievedChunk(f"{d}#000", d, "t", 0.7, {"title": d, "published_at": "2025-12-16"})  # noqa: E731
+    return _FakeChain({
+        "q1": RagResult("3,916억원 [1]", False, [chunk("d1"), chunk("d2")], cited=[1], latency_ms=1000),
+        "q2": RagResult("다른 문서 인용 [2]", False, [chunk("d1"), chunk("d2")], cited=[2], latency_ms=1000),
+        "q3": RagResult(REFUSAL_MESSAGE, True, [], retrieval_refused=True, latency_ms=10),     # 잘못된 거절
+        "q4": RagResult(REFUSAL_MESSAGE, True, [], retrieval_refused=True, latency_ms=10),     # 올바른 거절
+    })
+
+
+def test_evaluate_and_summarize_answers(tmp_path):
+    import csv
+    from eval.run_eval import evaluate_answers, summarize_answers, write_answers_csv
+    rows = evaluate_answers(_items(), _answer_fixture())
+    by_id = {r["id"]: r for r in rows}
+    assert by_id["f001"]["cited_gold_auto"] is True and by_id["f002"]["cited_gold_auto"] is False
+    assert by_id["u001"]["cited_gold_auto"] is None and by_id["u001"]["refused"] is True
+
+    summary = summarize_answers(rows)
+    assert summary["refusal_accuracy"] == 1.0
+    assert summary["false_refusal_rate"] == round(1 / 3, 4)
+    assert summary["citation_rate"] == 1.0 and summary["cited_gold_rate_auto"] == 0.5
+    assert summary["counts"] == {"answerable": 3, "unanswerable": 1, "answered": 2}
+
+    path = tmp_path / "answers.csv"
+    write_answers_csv(rows, path)
+    assert path.read_bytes().startswith(b"\xef\xbb\xbf")                      # 엑셀용 BOM
+    with path.open(encoding="utf-8-sig", newline="") as f:
+        written = list(csv.DictReader(f))
+    assert written[0]["grade"] == "" and "[1] d1 (2025-12-16, d1, 유사도 0.700)" in written[0]["sources"]
