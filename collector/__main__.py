@@ -9,8 +9,6 @@
 
 import argparse
 
-from collector import collect_law, crawl_blog, crawl_korea_kr, load_provided, probe
-
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m collector", description="① 수집 계층")
@@ -18,7 +16,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     probe_cmd = sub.add_parser("probe", help="수집 후보 사이트의 robots.txt·응답 확인, 표본 HTML 저장")
     probe_cmd.add_argument("--only", nargs="+", metavar="KEY",
-                           help=f"확인할 후보 ({', '.join(t.key for t in probe.PROBE_TARGETS)})")
+                           help="확인할 후보 key (예: fsc mss). 없는 key 를 주면 가능한 목록을 보여 준다")
 
     provided = sub.add_parser("provided", help="제공 데이터(뉴스 CSV) 적재")
     provided.add_argument(
@@ -41,15 +39,21 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = build_parser().parse_args()
+    # 명령에 필요한 모듈만 불러온다 (예: provided 적재에는 HTML 파서가 필요 없다)
     if args.command == "probe":
+        from collector import probe
         probe.run(only=args.only)
     elif args.command == "provided":
+        from collector import load_provided
         load_provided.run(files=args.file)
     elif args.command == "korea-kr":
+        from collector import crawl_korea_kr
         crawl_korea_kr.run(queries=args.query, max_pages=args.max_pages)
     elif args.command == "blog":
+        from collector import crawl_blog
         crawl_blog.run(queries=args.query, max_results=args.max_results)
     elif args.command == "law":
+        from collector import collect_law
         collect_law.run(law_names=args.name)
 
 
