@@ -150,6 +150,13 @@ pip install -r requirements-dev.txt
 cp .env.example .env        # 이후 .env 에 OPENAI_API_KEY 등을 채운다
 ```
 
+노트북 출력에는 제공 기사 본문 일부가 찍힌다. 저장소가 공개이므로 커밋에서 출력을 자동으로 빼는
+git 필터를 한 번 설치한다 (이 저장소 복제본에만 적용, PC 의 노트북 파일에는 출력이 그대로 남는다).
+
+```bash
+nbstripout --install
+```
+
 ## 실행 순서
 
 모든 명령은 프로젝트 루트에서 실행한다. 각 계층은 독립적으로 실행된다.

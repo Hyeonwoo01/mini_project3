@@ -3,3 +3,4 @@
 pytest==9.2.0
 ipykernel==7.4.0
 nbformat==5.11.1  # 노트북에서 plotly 차트 렌더링에 필요
+nbstripout==0.9.1  # 커밋할 때 노트북 출력(기사 본문 일부 포함)을 자동으로 뺀다
