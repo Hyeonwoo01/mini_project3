@@ -8,7 +8,9 @@
 """
 
 import json
+import time
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from sqlite3 import Connection
@@ -48,17 +50,28 @@ def _document_text(row) -> str:
     return ""
 
 
+PROGRESS_EVERY = 10_000
+
+
 def prepare(
-    conn: Connection, quality_config: quality.QualityConfig | None, dedup_config: dedup.DedupConfig
+    conn: Connection,
+    quality_config: quality.QualityConfig | None,
+    dedup_config: dedup.DedupConfig,
+    progress: Callable[[str], None] = lambda message: None,
 ) -> PrepareStats:
+    started = time.monotonic()
+    elapsed = lambda: f"{time.monotonic() - started:.0f}초"  # noqa: E731
     processed_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     stats = PrepareStats(quality_config.name if quality_config else "none", dedup_config.name)
     records: list[ProcessedRecord] = []
     survivors: list[dedup.DedupInput] = []
     pending: dict[str, dict] = {}
 
+    progress("[1/3] 정제·품질 판정 중")
     for row in iter_documents(conn):
         stats.total += 1
+        if stats.total % PROGRESS_EVERY == 0:
+            progress(f"      {stats.total:,}건 처리 ({elapsed()})")
         doc_type = DocType(row["doc_type"])
         text = _document_text(row)
         if quality_config is None:
@@ -80,6 +93,7 @@ def prepare(
         survivors.append(dedup.DedupInput(row["doc_id"], doc_type, text, row["published_at"], row["title"]))
         pending[row["doc_id"]] = dict(common, clean_text=text, content_hash=dedup.content_hash(text))
 
+    progress(f"[2/3] 중복 처리 중: 대상 {len(survivors):,}건 ({elapsed()})")
     results = dedup.deduplicate(survivors, dedup_config)
     for doc in survivors:
         result = results[doc.doc_id]
@@ -90,8 +104,10 @@ def prepare(
             stats.kept_by_type[doc.doc_type.value] += 1
             stats.kept_by_scope[record.scope or "(종류상 해당 없음)"] += 1
 
+    progress(f"[3/3] processed_documents 기록 중: {len(records):,}건 ({elapsed()})")
     replace_processed_documents(conn, records)
     stats.statuses.update(r.status for r in records)
+    progress(f"완료 ({elapsed()})")
     return stats
 
 
@@ -99,6 +115,6 @@ def run(quality_name: str, dedup_name: str) -> PrepareStats:
     quality_config = None if quality_name == "none" else quality.get_quality_config(quality_name)
     dedup_config = dedup.get_dedup_config(dedup_name)
     with open_db() as conn:
-        stats = prepare(conn, quality_config, dedup_config)
+        stats = prepare(conn, quality_config, dedup_config, progress=lambda message: print(message, flush=True))
     print(stats.summary())
     return stats
