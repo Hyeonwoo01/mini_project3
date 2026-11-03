@@ -9,12 +9,15 @@
 
 페이지 구조 (2026-11-03, collector probe 로 받은 표본으로 확인)
 - 목록 pressReleaseList.do?pageIndex&startDate&endDate&srchWord: div.list_type li > a 마다
-  strong(제목), span.source > span (게시일 2026.11.03, 부처명). 마지막 쪽은 div.paging a.last 의 pageLink(n)
+  strong(제목), span.source > span (게시일, 부처명). 게시일은 일반 목록이 2026.11.03, 검색 결과가 2026-11-03
+  형식이다. 마지막 쪽은 div.paging a.last 의 pageLink(n)
 - 상세 pressReleaseView.do?newsId=: 본문은 HTML 에 없고 문서뷰어 iframe 으로 따로 불러온다.
   대신 div.filedown 에 원문 첨부(HWPX·PDF)가 있어 PDF 를 받아 본문으로 쓴다 (텍스트 추출은 indexer)
 - 이용 조건: 상세 화면 하단 '텍스트에 한하여 공공누리 제1유형(출처표시)'. 출처(부처·URL)를 메타데이터로 보존한다
 
 부처 거르기는 목록의 부처명으로 한다. 목록 화면의 부처 선택 파라미터(repCode)는 동작을 확인하지 못했다.
+검색은 본문·첨부까지 찾아서 지나가듯 언급한 보도자료도 나온다 ('카드수수료' 검색에 가상자산·중동 상황 점검
+보도자료). 그래서 --title-keyword 로 제목에 주제어가 있는 것만 받는다. --dry-run 으로 받을 목록을 먼저 본다.
 이미 PDF 를 받은 문서는 다시 받지 않으므로, 중단된 수집은 같은 명령으로 이어서 실행하면 된다.
 요청은 collector/fetch.py 를 통해서만 보낸다 (robots.txt·딜레이·User-Agent).
 """
@@ -43,7 +46,7 @@ LICENSE = "공공누리 제1유형(출처표시), 텍스트에 한함"
 
 _PAGE_LINK = re.compile(r"pageLink\((\d+)\)")
 _TOTAL = re.compile(r"총\s*([\d,]+)\s*건")
-_DATE = re.compile(r"(\d{4})\.(\d{2})\.(\d{2})")
+_DATE = re.compile(r"(\d{4})[.-](\d{2})[.-](\d{2})")
 _TITLE_TAG = re.compile(r"^\s*\[보도자료\]\s*")
 
 
@@ -82,6 +85,8 @@ class CrawlStats:
     pages: int = 0
     listed: int = 0
     skipped_ministry: int = 0
+    skipped_title: int = 0
+    planned: list[str] = field(default_factory=list)   # --dry-run 에서 받을 대상
     already: int = 0
     saved: int = 0
     no_pdf: list[str] = field(default_factory=list)
@@ -89,7 +94,9 @@ class CrawlStats:
 
     def summary(self) -> str:
         lines = [f"목록 {self.pages}쪽 · 보도자료 {self.listed}건",
-                 f"  부처 조건 밖 {self.skipped_ministry} · 이미 수집 {self.already} · 새로 저장 {self.saved}",
+                 f"  부처 조건 밖 {self.skipped_ministry} · 제목 조건 밖 {self.skipped_title} · "
+                 f"이미 수집 {self.already} · 새로 저장 {self.saved}"
+                 + (f" · 받을 대상 {len(self.planned)} (--dry-run)" if self.planned else ""),
                  f"  PDF 첨부 없음 {len(self.no_pdf)} · 실패 {len(self.failed)}"]
         lines += [f"    PDF 없음: {item}" for item in self.no_pdf[:10]]
         lines += [f"    실패: {item}" for item in self.failed[:10]]
@@ -144,6 +151,9 @@ def _saved_raw_path(conn, doc_id: str) -> str | None:
 
 def collect_item(fetcher: Fetcher, item: ListItem, query: str) -> DocumentRecord | None:
     """상세 페이지에서 PDF 첨부를 찾아 저장하고 문서 레코드를 만든다. PDF 가 없으면 None."""
+    if item.published_at is None:
+        # doc_id 와 시점 질문이 게시일에 의존하므로 날짜 없이 저장하지 않는다 (목록 구조가 바뀐 경우)
+        raise ValueError("목록에서 게시일을 읽지 못함")
     detail = fetcher.get(item.url)
     if detail.status != 200:
         raise requests.HTTPError(f"상세 페이지 {detail.status}")
@@ -165,10 +175,12 @@ def collect_item(fetcher: Fetcher, item: ListItem, query: str) -> DocumentRecord
 
 
 def run(queries: list[str], max_pages: int | None = None, ministries: list[str] | None = None,
-        start: str = DEFAULT_START, end: str = DEFAULT_END, count_only: bool = False,
+        title_keywords: list[str] | None = None, start: str = DEFAULT_START, end: str = DEFAULT_END,
+        count_only: bool = False, dry_run: bool = False,
         fetcher: Fetcher | None = None, db_path: Path | None = None) -> CrawlStats:
     fetcher = fetcher or Fetcher()
     wanted = set(ministries or [])
+    keywords = [k for k in (title_keywords or []) if k.strip()]
     stats = CrawlStats()
     with open_db(db_path) as conn:
         for query in queries:
@@ -191,10 +203,17 @@ def run(queries: list[str], max_pages: int | None = None, ministries: list[str] 
                     if wanted and item.ministry not in wanted:
                         stats.skipped_ministry += 1
                         continue
+                    if keywords and not any(k in item.title for k in keywords):
+                        stats.skipped_title += 1
+                        continue
                     if _saved_raw_path(conn, make_doc_id(DOC_ID_PREFIX, item.url, item.published_at)):
                         stats.already += 1
                         continue
                     label = f"{item.published_at} {item.ministry} {item.title[:40]}"
+                    if dry_run:
+                        stats.planned.append(label)
+                        print(f"  대상 {len(stats.planned)}: {label}", flush=True)
+                        continue
                     try:
                         record = collect_item(fetcher, item, query)
                     except (requests.RequestException, RobotsDisallowed, ValueError) as exc:
@@ -208,7 +227,8 @@ def run(queries: list[str], max_pages: int | None = None, ministries: list[str] 
                     conn.commit()           # 문서마다 저장해 중단돼도 받은 만큼은 남는다
                     stats.saved += 1
                     print(f"  저장 {stats.saved}: {label}", flush=True)
-                print(f"[{query}] {page}/{last_page}쪽 완료 · 누적 저장 {stats.saved}", flush=True)
+                print(f"[{query}] {page}/{last_page}쪽 완료 · 누적 저장 {stats.saved}"
+                      + (f" · 대상 {len(stats.planned)}" if dry_run else ""), flush=True)
                 page += 1
     print(stats.summary())
     return stats

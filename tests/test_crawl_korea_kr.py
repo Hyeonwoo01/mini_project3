@@ -45,6 +45,12 @@ def test_parse_list_reads_items_paging_and_total():
     assert (page.last_page, page.total) == (275, 2741)
 
 
+def test_parse_list_reads_search_result_date_format():
+    # 검색 결과 목록은 게시일을 2026-10-14 형식으로 쓴다 (일반 목록은 2026.10.14)
+    page = kr.parse_list(list_html([_item(1, "제목", "2026-10-14", "중소벤처기업부")]))
+    assert page.items[0].published_at == "2026-10-14"
+
+
 def test_parse_list_without_search_or_paging():
     page = kr.parse_list(list_html([_item(1, "제목", "2026.11.03", "외교부")]))
     assert (page.last_page, page.total) == (1, None)
@@ -149,3 +155,31 @@ def test_count_only_reads_first_page(tmp_path, make_fetcher, http, raw_store, ca
     assert (stats.pages, stats.listed) == (1, 0)
     assert http.calls.count(kr.LIST_URL) == 1
     assert "검색 결과 88건 · 9쪽" in capsys.readouterr().out
+
+
+def test_run_filters_by_title_keyword_and_dry_run_downloads_nothing(tmp_path, make_fetcher, http, raw_store):
+    http.route(ROBOTS, (404, ""))
+    http.route(kr.LIST_URL, (200, list_html([
+        _item(301, "2026년 상반기 영세·중소가맹점 선정결과", "2026-02-13", "금융위원회"),
+        _item(302, "가상자산 사업자 점검", "2026-02-14", "금융위원회"),
+        _item(303, "카드수수료 개편방안", "2026-02-15", "금융위원회"),
+    ])))
+
+    stats = kr.run(["카드수수료"], ministries=["금융위원회"], title_keywords=["가맹점", "수수료"], dry_run=True,
+                   fetcher=make_fetcher(), db_path=tmp_path / "docs.db")
+
+    assert stats.skipped_title == 1 and stats.saved == 0 and not raw_store
+    assert [label.split(" ", 2)[2] for label in stats.planned] == [
+        "2026년 상반기 영세·중소가맹점 선정결과", "카드수수료 개편방안"]
+    assert not any("pressReleaseView" in url for url in http.calls)
+
+
+def test_run_does_not_save_item_without_date(tmp_path, make_fetcher, http, raw_store):
+    http.route(ROBOTS, (404, ""))
+    http.route(kr.LIST_URL, (200, list_html([_item(401, "날짜 없는 항목", "", "금융위원회")])))
+
+    stats = kr.run(["카드수수료"], fetcher=make_fetcher(), db_path=tmp_path / "docs.db")
+
+    assert stats.saved == 0 and not raw_store
+    assert len(stats.failed) == 1 and "게시일" in stats.failed[0]
+    assert not any("pressReleaseView" in url for url in http.calls)
