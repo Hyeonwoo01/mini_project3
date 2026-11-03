@@ -14,7 +14,10 @@ DOCS = {  # doc_id: (발행일, 범위, 반복 횟수 → 청크 수)
     "old": ("2022-03-01T09:00:00", "national", 3),
     "seoul": ("2025-06-01T09:00:00", "seoul", 3),
     "long": ("2026-01-08T09:00:00", "national", 60),   # 청크 여러 개
+    "twin1": ("2023-10-16T09:00:00", "national", 2),   # 같은 날 같은 제목 (요약·전문 기사)
+    "twin2": ("2023-10-16T15:00:00", "national", 8),
 }
+TITLES = {"twin1": "서울 골목상권 매출 14% 증가", "twin2": "“서울 골목상권 매출 14% 증가”"}
 FAKE = DeterministicFakeEmbedding(size=16)
 
 
@@ -24,7 +27,7 @@ def chroma(tmp_path_factory):
     db, chroma_dir = tmp / "docs.db", tmp / "chroma"
     with open_db(db) as conn:
         upsert_documents(conn, [
-            DocumentRecord(doc_id=d, doc_type=DocType.NEWS, source="연합뉴스", title=f"{d} 기사", url=f"https://x/{d}",
+            DocumentRecord(doc_id=d, doc_type=DocType.NEWS, source="연합뉴스", title=TITLES.get(d, f"{d} 기사"), url=f"https://x/{d}",
                            collected_at="2026-10-16", collect_method=CollectMethod.PROVIDED, published_at=published)
             for d, (published, _, _) in DOCS.items()
         ])
@@ -43,12 +46,17 @@ def _retriever(chroma, **kwargs):
 
 
 def test_returns_one_chunk_per_document_with_scores(chroma):
-    results = _retriever(chroma).retrieve("골목상권 매출", k=5)
+    results = _retriever(chroma).retrieve("골목상권 매출", k=10)
     doc_ids = [r.doc_id for r in results]
-    assert len(doc_ids) == len(set(doc_ids)) == 3          # 'long' 의 여러 청크가 상위를 채우지 않음
+    assert len(doc_ids) == len(set(doc_ids)) == 4          # 'long' 의 여러 청크가 상위를 채우지 않음
+    assert len({"twin1", "twin2"} & set(doc_ids)) == 1      # 같은 날 같은 제목은 하나만
     assert all(-1.0 <= r.score <= 1.0 for r in results)
     assert [r.score for r in results] == sorted((r.score for r in results), reverse=True)
-    assert results[0].metadata["title"].endswith("기사")
+
+
+def test_same_title_collapse_can_be_disabled(chroma):
+    results = _retriever(chroma, collapse_same_title=False).retrieve("골목상권 매출", k=10)
+    assert {"twin1", "twin2"} <= {r.doc_id for r in results}
 
 
 def test_max_chunks_per_doc_allows_more_chunks(chroma):

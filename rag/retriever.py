@@ -8,8 +8,12 @@
 - 점수는 코사인 유사도(1 - 거리). 높을수록 유사하다. 거절 판단(유사도 임계값)은 체인이 한다
 - 같은 문서의 청크가 상위를 채우지 않도록 문서당 청크 수를 제한한다 (기본 1개). 이 때문에 후보를
   k 보다 넉넉히(fetch_k) 가져온 뒤 문서 단위로 고른다
+- 같은 날 같은 제목인 기사는 하나만 남긴다 (기본). 짧은 요약 기사와 긴 전문 기사처럼 길이 차이로
+  본문 유사도가 낮아 중복 처리를 빠져나간 경우다 (verify 샘플: '서울 골목상권 외식업 매출 14% 증가'
+  두 건이 2·3위를 차지). 인덱스를 다시 만들지 않고 검색 단계에서 다룬다
 """
 
+import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date
@@ -26,6 +30,12 @@ from common.embeddings import get_embedding_model
 from common.schema import DocType
 
 FETCH_MULTIPLIER = 4  # 문서당 청크 제한으로 걸러질 것을 감안한 후보 배수
+_NON_WORD = re.compile(r"[\W_]+")
+
+
+def _title_key(metadata: dict[str, Any]) -> tuple[str, str] | None:
+    title = _NON_WORD.sub("", str(metadata.get("title", "")))
+    return (title, str(metadata.get("published_at", ""))[:10]) if title else None
 
 
 @dataclass(frozen=True)
@@ -69,6 +79,7 @@ class Retriever:
         embeddings: Embeddings | None = None,
         embedding_model_name: str | None = None,
         max_chunks_per_doc: int = 1,
+        collapse_same_title: bool = True,
     ) -> None:
         if max_chunks_per_doc < 1:
             raise ValueError("max_chunks_per_doc 는 1 이상이어야 합니다")
@@ -88,6 +99,7 @@ class Retriever:
         self.collection = collection
         self.collection_metadata = dict(metadata)
         self.max_chunks_per_doc = max_chunks_per_doc
+        self.collapse_same_title = collapse_same_title
         self._store = Chroma(
             collection_name=collection,
             embedding_function=embeddings or get_embedding_model(),
@@ -105,11 +117,15 @@ class Retriever:
                                                         filter=where)
         results: list[RetrievedChunk] = []
         per_doc: dict[str, int] = defaultdict(int)
+        title_owner: dict[tuple[str, str], str] = {}
         for document, distance in hits:  # 거리 오름차순 = 유사도 내림차순
             meta = dict(document.metadata)
             doc_id = meta["doc_id"]
             if per_doc[doc_id] >= self.max_chunks_per_doc:
                 continue
+            key = _title_key(meta) if self.collapse_same_title else None
+            if key is not None and title_owner.setdefault(key, doc_id) != doc_id:
+                continue  # 같은 날 같은 제목의 다른 기사
             per_doc[doc_id] += 1
             results.append(RetrievedChunk(chunk_id=meta["chunk_id"], doc_id=doc_id, text=document.page_content,
                                           score=1.0 - distance, metadata=meta))

@@ -298,7 +298,8 @@ def main() -> None:
     summary = summarize(records, args.k)
     config = {
         "tag": args.tag, "collection": collection, "k": args.k,
-        "max_chunks_per_doc": retriever.max_chunks_per_doc, "collection_metadata": retriever.collection_metadata,
+        "max_chunks_per_doc": retriever.max_chunks_per_doc, "collapse_same_title": retriever.collapse_same_title,
+        "collection_metadata": retriever.collection_metadata,
         "eval_set_items": len(items), "git_commit": _git_commit(),
         "evaluated_at": datetime.now().isoformat(timespec="seconds"),
     }
