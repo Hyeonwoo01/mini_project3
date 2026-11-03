@@ -32,7 +32,7 @@ from common.schema import DocType
 from indexer.chunk import Chunk, ChunkConfig, ChunkSource, chunk_document
 
 ADD_BATCH = 256                 # 한 번에 임베딩·적재하는 청크 수
-PROGRESS_EVERY_BATCHES = 10
+PROGRESS_EVERY_SEC = 30         # 진행 상황 출력 간격 (멈춤을 바로 알아챌 수 있게)
 SAMPLE_QUERIES = ("소상공인 정책자금 지원 규모", "지역화폐 예산 삭감 논란", "서울 골목상권 매출 변화")
 
 
@@ -144,7 +144,7 @@ def build_collection(
         col.delete(ids=stale[i:i + ADD_BATCH * 20])
     stats.removed_stale = len(stale)
 
-    started = time.monotonic()
+    started = last_report = time.monotonic()
     batches = [chunks[i:i + ADD_BATCH] for i in range(0, len(chunks), ADD_BATCH)]
     for number, batch in enumerate(batches, start=1):
         found = col.get(ids=[c.chunk_id for c in batch], include=["documents"])
@@ -164,9 +164,11 @@ def build_collection(
                        embeddings=vectors, metadatas=[c.metadata for c in todo])
             stats.updated += changed
             stats.added += len(todo) - changed
-        if number % PROGRESS_EVERY_BATCHES == 0 or number == len(batches):
+        now = time.monotonic()
+        if now - last_report >= PROGRESS_EVERY_SEC or number == len(batches):
+            last_report = now
             done = number * ADD_BATCH if number < len(batches) else len(chunks)
-            elapsed = time.monotonic() - started
+            elapsed = now - started
             eta = elapsed / done * (len(chunks) - done) if done else 0
             progress(f"  {done:,}/{len(chunks):,} 청크 ({elapsed:.0f}초, 남은 시간 약 {eta / 60:.0f}분)")
     return stats
