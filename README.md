@@ -94,6 +94,7 @@ mini_project3/
 ├── indexer/                # ② 인덱싱 계층 (배치)
 │   ├── __main__.py
 │   ├── parse.py            #   PDF·HTML 텍스트 추출, 보일러플레이트 제거
+│   ├── quality.py          #   품질 필터 (범위 밖·불량 제외, 신뢰도 플래그)
 │   ├── dedup.py            #   중복 내용 처리
 │   ├── chunk.py            #   문서 종류별 청킹 설정
 │   └── embed.py            #   임베딩·Chroma 적재·검증

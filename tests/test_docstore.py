@@ -36,6 +36,27 @@ def test_upsert_is_idempotent_and_roundtrips(tmp_path):
     assert doc["doc_type"] == "press_release"
     assert doc["extra"] == {"attachments": ["보도자료.pdf"]}
     assert doc["clean_text"] is None  # 인덱서 실행 전
+    assert doc["quality_flags"] == []
+
+
+def test_get_document_includes_processed_fields(tmp_path):
+    db = tmp_path / "docs.db"
+    with open_db(db) as conn:
+        upsert_documents(conn, [_record()])
+        conn.execute(
+            "INSERT INTO processed_documents "
+            "(doc_id, clean_text, canonical_doc_id, status, quality_flags, processed_at) "
+            "VALUES (?, ?, ?, 'kept', ?, ?)",
+            ("kr_20260115_1a2b3c4d", "정제 본문", "kr_20260115_1a2b3c4d",
+             '["missing_source"]', "2026-11-03T10:00:00+09:00"),
+        )
+
+    with open_db(db, read_only=True) as conn:
+        doc = get_document(conn, "kr_20260115_1a2b3c4d")
+
+    assert doc["clean_text"] == "정제 본문"
+    assert doc["status"] == "kept"
+    assert doc["quality_flags"] == ["missing_source"]
 
 
 def test_same_url_with_different_ids_is_kept_for_dedup(tmp_path):

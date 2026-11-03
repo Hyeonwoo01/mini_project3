@@ -45,7 +45,8 @@ CREATE TABLE IF NOT EXISTS processed_documents (
     content_hash      TEXT,
     canonical_doc_id  TEXT REFERENCES documents(doc_id),  -- 대표 문서 id (대표 문서는 자기 자신)
     status            TEXT NOT NULL CHECK (status IN ('kept', 'duplicate', 'excluded')),
-    excluded_reason   TEXT,
+    excluded_reason   TEXT,                      -- indexer.quality.ExclusionReason 값
+    quality_flags     TEXT NOT NULL DEFAULT '[]', -- indexer.quality.QualityFlag 값 목록 (JSON)
     processed_at      TEXT NOT NULL
 );
 """
@@ -113,7 +114,7 @@ def get_document(conn: sqlite3.Connection, doc_id: str) -> dict[str, Any] | None
     """원문 확인 영역용 조회. 정제 본문이 있으면 함께 반환한다."""
     row = conn.execute(
         """
-        SELECT d.*, p.clean_text, p.status, p.canonical_doc_id
+        SELECT d.*, p.clean_text, p.status, p.canonical_doc_id, p.quality_flags
         FROM documents AS d
         LEFT JOIN processed_documents AS p USING (doc_id)
         WHERE d.doc_id = ?
@@ -124,4 +125,6 @@ def get_document(conn: sqlite3.Connection, doc_id: str) -> dict[str, Any] | None
         return None
     result = dict(row)
     result["extra"] = json.loads(result["extra"])
+    # 인덱서 실행 전이면 processed_documents 행이 없어 NULL 이다.
+    result["quality_flags"] = json.loads(result["quality_flags"] or "[]")
     return result
