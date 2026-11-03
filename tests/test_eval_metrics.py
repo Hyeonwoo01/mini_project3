@@ -214,3 +214,16 @@ def test_top_score_is_highest_similarity_regardless_of_rank():
     record = evaluate_retrieval([item], _Unsorted(), k=3)[0]
     assert record["top_score"] == 0.71 and record["gold_rank"] == 2
     assert record["retrieved"][0]["keyword_rank"] == 1 and record["retrieved"][0]["vector_rank"] is None
+
+
+def test_rescore_records_uses_current_gold_without_searching():
+    from eval.run_eval import EvalItem, rescore_records
+    records = [{"id": "f001", "type": "fact", "q": "질문", "gold_doc_ids": ["a"], "top_score": 0.7, "latency_ms": 10,
+                "retrieved": [{"rank": 1, "doc_id": "x"}, {"rank": 2, "doc_id": "a"}],
+                "gold_rank": 2, "hit@1": False, "hit@3": True, "hit@5": True, "rr": 0.5}]
+    items = [EvalItem(id="f001", q="질문", type="fact", gold_doc_ids=("a", "x"), answer_key="답")]
+    rescored = rescore_records(records, items, k=5)[0]
+    assert rescored["gold_rank"] == 1 and rescored["hit@1"] and rescored["rr"] == 1.0   # 추가한 정답 x 가 1위
+    assert rescored["gold_doc_ids"] == ["a", "x"] and rescored["retrieved"] == records[0]["retrieved"]
+    with pytest.raises(ValueError, match="u001"):
+        rescore_records(records, items + [EvalItem("u001", "q", "unanswerable", (), "거절")], k=5)

@@ -190,6 +190,33 @@ def evaluate_retrieval(items: Sequence[EvalItem], retriever: SupportsRetrieve, k
     return records
 
 
+def rescore_records(records: Sequence[dict[str, Any]], items: Sequence[EvalItem], k: int) -> list[dict[str, Any]]:
+    """저장된 검색 결과를 현재 평가셋의 정답 목록으로 다시 채점한다 (검색은 다시 하지 않는다).
+
+    정답 목록만 고쳤을 때(판정 오류 수정 등) 검색 결과는 그대로이므로, 원문 DB·벡터 DB·API 없이 지표를 다시 낸다.
+    """
+    by_id = {r["id"]: r for r in records}
+    missing = [item.id for item in items if item.id not in by_id]
+    if missing:
+        raise ValueError(f"저장된 결과에 없는 문항이 있습니다 (검색을 다시 실행해야 함): {', '.join(missing)}")
+    rescored = []
+    for item in items:
+        old = by_id[item.id]
+        record = {key: old[key] for key in ("id", "type", "q", "retrieved", "top_score", "latency_ms")}
+        record["gold_doc_ids"] = list(item.gold_doc_ids)
+        if item.gold_doc_ids:
+            gold, ranked = set(item.gold_doc_ids), [hit["doc_id"] for hit in old["retrieved"]]
+            record.update({
+                "gold_rank": next((rank for rank, d in enumerate(ranked, start=1) if d in gold), None),
+                "hit@1": hit_at_k(ranked, gold, 1),
+                "hit@3": hit_at_k(ranked, gold, 3),
+                f"hit@{k}": hit_at_k(ranked, gold, k),
+                "rr": reciprocal_rank(ranked, gold),
+            })
+        rescored.append(record)
+    return rescored
+
+
 def _metrics(records: Sequence[dict[str, Any]], k: int) -> dict[str, Any]:
     if not records:
         return {"count": 0}
@@ -348,6 +375,24 @@ def format_summary(summary: dict[str, Any], k: int) -> str:
     return "\n".join(lines)
 
 
+def rescore(source: Path, tag: str, settings) -> Path:
+    """--rescore: 저장된 검색 결과를 현재 평가셋으로 다시 채점해 새 결과 디렉터리로 저장한다."""
+    if not (source / "retrieval.jsonl").is_file():
+        raise SystemExit(f"retrieval.jsonl 이 없습니다: {source}")
+    old = json.loads((source / "summary.json").read_text(encoding="utf-8"))
+    k = old["config"]["k"]
+    records = [json.loads(line) for line in (source / "retrieval.jsonl").read_text(encoding="utf-8").splitlines()]
+    items = load_eval_set(settings.eval_set_path)
+    rescored = rescore_records(records, items, k)
+    summary = summarize(rescored, k)
+    config = {**old["config"], "tag": tag, "eval_set_items": len(items), "git_commit": _git_commit(),
+              "rescored_from": source.name, "chain": None, "evaluated_at": datetime.now().isoformat(timespec="seconds")}
+    out = save_results(rescored, summary, config, tag, settings.eval_results_dir)
+    print(format_summary(summary, k))
+    print(f"  다시 채점: {source.name} → {out.relative_to(PROJECT_ROOT)} (검색 결과는 그대로, 정답 목록만 현재 평가셋)")
+    return out
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="python -m eval.run_eval", description="평가 하네스")
     parser.add_argument("--check", action="store_true", help="평가셋 검사만 수행")
@@ -356,12 +401,16 @@ def main() -> None:
     parser.add_argument("--k", type=int, default=5, help="검색 결과 수 (3 이상)")
     parser.add_argument("--mode", choices=RETRIEVAL_MODES, help="검색 방식 (기본: RAG_RETRIEVAL_MODE)")
     parser.add_argument("--with-answers", action="store_true", help="답변 생성 및 채점용 CSV 출력")
+    parser.add_argument("--rescore", type=Path, help="저장된 검색 결과(eval/results/...)를 현재 정답 목록으로 다시 채점")
     args = parser.parse_args()
     settings = get_settings()
     if args.check:
         raise SystemExit(1 if check_eval_set(settings.eval_set_path) else 0)
     if not args.tag:
         parser.error("--tag 가 필요합니다 (평가 실행 시)")
+    if args.rescore:
+        rescore(args.rescore, args.tag, settings)
+        return
     if args.k < 3:
         parser.error("--k 는 3 이상이어야 합니다 (Hit@3 계산)")
 
