@@ -44,7 +44,7 @@ _CITATION = re.compile(r"\[(\d{1,2})\]")
 @dataclass(frozen=True)
 class ChainConfig:
     top_k: int = 5
-    min_score: float = 0.4
+    min_score: float = 0.5
 
     def __post_init__(self) -> None:
         if self.top_k < 1 or not 0.0 <= self.min_score < 1.0:

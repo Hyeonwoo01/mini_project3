@@ -100,8 +100,10 @@ def get_settings() -> Settings:
         embedding_model=_env("EMBEDDING_MODEL", "text-embedding-3-small"),
         chroma_collection=_env("CHROMA_COLLECTION", "docs__c500"),
         rag_top_k=_parse_top_k(_env("RAG_TOP_K", "5")),
-        rag_min_score=_parse_min_score(_env("RAG_MIN_SCORE", "0.4")),
-        rag_retrieval_mode=_parse_retrieval_mode(_env("RAG_RETRIEVAL_MODE", "vector")),
+        # 기본값은 평가 결과로 정했다 (README '실험 기록'): 하이브리드가 Hit@3 0.625 → 0.917,
+        # 임계값 0.5 는 답변 가능 문항 1위 유사도 최저(0.570)보다 낮고 답변 불가 2문항을 검색 단계에서 거절한다.
+        rag_min_score=_parse_min_score(_env("RAG_MIN_SCORE", "0.5")),
+        rag_retrieval_mode=_parse_retrieval_mode(_env("RAG_RETRIEVAL_MODE", "hybrid")),
         crawl_delay_sec=_parse_crawl_delay(_env("CRAWL_DELAY_SEC", "1.5")),
         crawler_user_agent=_env("CRAWLER_USER_AGENT", "mini-project3-edu-crawler/0.1"),
     )
