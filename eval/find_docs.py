@@ -5,6 +5,7 @@
     python -m eval.find_docs 골목상권 매출 --scope seoul --limit 30
     python -m eval.find_docs --doc news_20251216_1a2b3c4d     # 문서 전문 확인
     python -m eval.find_docs --batch data/question_drafts.txt  # 문항 후보별 검색 결과를 파일로
+    python -m eval.find_docs 부담경감 크레딧 --doc-type press_release announcement  # 1차 자료만
 
 --batch 파일 형식 (한 줄에 한 문항, # 으로 시작하면 주석):
     f001 | 상생페이백 11월분 환급액과 누적 지급액은? | 상생페이백 11월
@@ -23,6 +24,7 @@ from pathlib import Path
 
 from common.config import PROJECT_ROOT
 from common.docstore import open_db
+from common.schema import DocType
 
 SNIPPET_RADIUS = 60
 
@@ -52,6 +54,7 @@ def search(
     *,
     scope: str | None = None,
     year: int | None = None,
+    doc_types: list[str] | None = None,
     limit: int = 20,
 ) -> list[FoundDoc]:
     if not terms:
@@ -71,6 +74,9 @@ def search(
     if year:
         sql.append("AND substr(d.published_at, 1, 4) = ?")
         params.append(str(year))
+    if doc_types:
+        sql.append(f"AND d.doc_type IN ({', '.join('?' for _ in doc_types)})")
+        params += list(doc_types)
     sql.append("ORDER BY d.published_at DESC LIMIT ?")
     params.append(limit)
     rows = conn.execute("\n".join(sql), params).fetchall()
@@ -118,7 +124,8 @@ def parse_batch_line(line: str) -> tuple[str, str, list[str]] | None:
     return parts[0], parts[1], parts[2].split()
 
 
-def run_batch(conn: sqlite3.Connection, batch_path: Path, out_path: Path, limit: int = BATCH_LIMIT) -> int:
+def run_batch(conn: sqlite3.Connection, batch_path: Path, out_path: Path, limit: int = BATCH_LIMIT,
+              doc_types: list[str] | None = None) -> int:
     """문항 후보마다 검색해 결과를 마크다운으로 저장한다. 검색 결과가 없는 문항 수를 반환한다."""
     # Windows 메모장은 UTF-8 저장 시 BOM 을 붙이므로 utf-8-sig 로 읽는다
     text = batch_path.read_text(encoding="utf-8-sig")
@@ -127,14 +134,14 @@ def run_batch(conn: sqlite3.Connection, batch_path: Path, out_path: Path, limit:
              "후보 기사를 읽고 답이 실제로 있는지 확인한 뒤 gold_doc_ids 를 정한다 (--doc 으로 전문 확인).", ""]
     empty = 0
     for qid, question, terms in entries:
-        found = search(conn, terms, limit=limit)
+        found = search(conn, terms, limit=limit, doc_types=doc_types)
         lines += [f"## {qid} — {question}", f"검색어: {' '.join(terms)} · {len(found)}건", ""]
         if not found:
             empty += 1
             lines += ["(검색 결과 없음 — 답변 불가 후보이거나 검색어를 바꿔 볼 것)", ""]
         for doc in found:
             lines.append(f"- `{doc.doc_id}` {(doc.published_at or '날짜 미상')[:10]} {doc.source} "
-                         f"[{doc.scope or '-'}] **{doc.title}**")
+                         f"[{doc.doc_type}/{doc.scope or '-'}] **{doc.title}**")
             lines.append(f"  - {doc.snippet}")
         lines.append("")
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -150,6 +157,8 @@ def main() -> None:
     parser.add_argument("--out", type=Path, default=DEFAULT_BATCH_OUT, help="--batch 결과 파일")
     parser.add_argument("--scope", choices=["seoul", "national"], help="뉴스 범위")
     parser.add_argument("--year", type=int, help="발행 연도")
+    parser.add_argument("--doc-type", nargs="+", choices=[t.value for t in DocType], metavar="TYPE",
+                        help="이 문서 종류만 (예: press_release announcement)")
     parser.add_argument("--limit", type=int, default=20)
     args = parser.parse_args()
     if not args.doc and not args.terms and not args.batch:
@@ -164,12 +173,13 @@ def main() -> None:
                 return
             if args.batch:
                 try:
-                    empty = run_batch(conn, args.batch, args.out)
+                    empty = run_batch(conn, args.batch, args.out, doc_types=args.doc_type)
                 except ValueError as exc:
                     raise SystemExit(f"{args.batch}: {exc}") from exc
                 print(f"저장: {args.out} (검색 결과 없는 문항 {empty}개)")
                 return
-            found = search(conn, args.terms, scope=args.scope, year=args.year, limit=args.limit)
+            found = search(conn, args.terms, scope=args.scope, year=args.year, doc_types=args.doc_type,
+                           limit=args.limit)
     except sqlite3.OperationalError as exc:
         raise SystemExit(f"검색 실패: {exc}. python -m indexer prepare 를 먼저 실행했는지 확인하세요.") from exc
 

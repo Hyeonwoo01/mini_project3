@@ -80,3 +80,17 @@ def test_batch_file_with_bom_and_crlf(conn, tmp_path):
     out = tmp_path / "candidates.md"
     assert run_batch(conn, drafts, out) == 0
     assert "## f001 — " in out.read_text(encoding="utf-8")       # BOM 이 id 앞에 붙지 않음
+
+
+def test_search_filters_by_doc_type(tmp_path):
+    with open_db(tmp_path / "docs.db") as c:
+        upsert_documents(c, [
+            _doc("n", "부담경감 크레딧 기사", "2025-06-25T09:00:00"),
+            DocumentRecord(doc_id="kr", doc_type=DocType.PRESS_RELEASE, source="중소벤처기업부",
+                           title="3대 지원사업 본격 시행", url="https://x/kr", collected_at="2026-11-03",
+                           collect_method=CollectMethod.CRAWL, published_at="2025-06-24"),
+        ])
+        replace_processed_documents(c, [_processed("n", "kept", "부담경감 크레딧 50만원"),
+                                        _processed("kr", "kept", "부담경감 크레딧 50만원 한도", scope=None)])
+        assert [d.doc_id for d in search(c, ["부담경감"])] == ["n", "kr"]
+        assert [d.doc_id for d in search(c, ["부담경감"], doc_types=["press_release"])] == ["kr"]
