@@ -411,6 +411,8 @@ def main() -> None:
     parser.add_argument("--context-chunks", type=int, choices=(1, 2, 3),
                         help="답변 근거로 넣는 문서당 청크 수 (기본: RAG_CONTEXT_CHUNKS)")
     parser.add_argument("--rescore", type=Path, help="저장된 검색 결과(eval/results/...)를 현재 정답 목록으로 다시 채점")
+    parser.add_argument("--ids", nargs="+", metavar="ID",
+                        help="이 문항만 평가한다 (예: f021 t013). 일부 문항의 반복 실행 비교에 쓴다")
     parser.add_argument("--doc-types", nargs="+", choices=[t.value for t in DocType], metavar="TYPE",
                         help="이 문서 종류만 검색한다 (예: news). 같은 컬렉션에서 1차 자료를 뺀 비교 실험에 쓴다")
     args = parser.parse_args()
@@ -428,6 +430,12 @@ def main() -> None:
     items = load_eval_set(settings.eval_set_path)
     if not items:
         raise SystemExit("평가셋이 비어 있습니다. eval/README.md 의 절차로 작성한 뒤 실행하세요.")
+    if args.ids:
+        unknown = sorted(set(args.ids) - {item.id for item in items})
+        if unknown:
+            parser.error(f"평가셋에 없는 문항: {', '.join(unknown)}")
+        items = [item for item in items if item.id in set(args.ids)]
+        print(f"평가 문항: {len(items)}개 ({', '.join(item.id for item in items)})")
     collection = args.collection or settings.chroma_collection
     mode = args.mode or settings.rag_retrieval_mode
     try:
@@ -457,7 +465,7 @@ def main() -> None:
         "doc_types": list(args.doc_types) if args.doc_types else None,
         "max_chunks_per_doc": retriever.max_chunks_per_doc, "collapse_same_title": retriever.collapse_same_title,
         "collection_metadata": retriever.collection_metadata,
-        "eval_set_items": len(items), "git_commit": _git_commit(),
+        "eval_set_items": len(items), "ids": list(args.ids) if args.ids else None, "git_commit": _git_commit(),
         "chain": {"top_k": chain.config.top_k, "min_score": chain.config.min_score,
                   "context_chunks": chain.config.context_chunks, "chat_model": settings.chat_model} if chain else None,
         "evaluated_at": datetime.now().isoformat(timespec="seconds"),
