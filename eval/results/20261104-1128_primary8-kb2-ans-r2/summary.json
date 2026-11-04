@@ -1,0 +1,106 @@
+{
+  "config": {
+    "tag": "primary8-kb2-ans-r2",
+    "collection": "docs__c500",
+    "k": 5,
+    "mode": "hybrid",
+    "hybrid": {
+      "candidates": 50,
+      "rrf_k": 60
+    },
+    "doc_types": null,
+    "max_chunks_per_doc": 1,
+    "collapse_same_title": true,
+    "collection_metadata": {
+      "embedding_model": "text-embedding-3-small",
+      "include_title": true,
+      "chunk_size": 500,
+      "created_at": "2026-11-03T05:01:17+00:00",
+      "chunk_config": "c500",
+      "chunk_overlap": 100
+    },
+    "eval_set_items": 8,
+    "ids": [
+      "f021",
+      "f023",
+      "f024",
+      "f026",
+      "f027",
+      "t013",
+      "t014",
+      "c005"
+    ],
+    "git_commit": "0c7fbe2",
+    "chain": {
+      "top_k": 5,
+      "min_score": 0.5,
+      "context_chunks": 2,
+      "chat_model": "gpt-4o-mini"
+    },
+    "evaluated_at": "2026-11-04T11:28:04"
+  },
+  "overall": {
+    "count": 8,
+    "hit@1": 0.875,
+    "hit@3": 1,
+    "hit@5": 1,
+    "mrr": 0.9375
+  },
+  "by_type": {
+    "comparison": {
+      "count": 1,
+      "hit@1": 1,
+      "hit@3": 1,
+      "hit@5": 1,
+      "mrr": 1.0
+    },
+    "fact": {
+      "count": 5,
+      "hit@1": 0.8,
+      "hit@3": 1,
+      "hit@5": 1,
+      "mrr": 0.9
+    },
+    "temporal": {
+      "count": 2,
+      "hit@1": 1,
+      "hit@3": 1,
+      "hit@5": 1,
+      "mrr": 1.0
+    }
+  },
+  "top_score": {
+    "answerable_hit": {
+      "count": 7,
+      "min": 0.4695,
+      "median": 0.665,
+      "max": 0.7316
+    },
+    "answerable_miss": {
+      "count": 0
+    },
+    "unanswerable": {
+      "count": 0
+    }
+  },
+  "latency_ms": {
+    "mean": 455.1,
+    "p95": 1664.1
+  },
+  "unanswerable_count": 0,
+  "answers": {
+    "refusal_accuracy": null,
+    "false_refusal_rate": 0.125,
+    "citation_rate": 1.0,
+    "cited_gold_rate_auto": 1.0,
+    "counts": {
+      "answerable": 8,
+      "unanswerable": 0,
+      "answered": 7
+    },
+    "latency_ms": {
+      "mean": 2585.9,
+      "p95": 3658.7
+    }
+  }
+}
