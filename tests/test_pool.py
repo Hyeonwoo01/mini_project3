@@ -69,3 +69,16 @@ def test_write_parse_and_apply_judgments(tmp_path):
     assert updated[0]["gold_doc_ids"] == ["g", "x"] and updated[1]["gold_doc_ids"] == []
     assert json.loads(judged.read_text(encoding="utf-8")) == {"f018": ["n"]}
     assert apply_judgments(eval_set, judged, judgments) == {}            # 다시 반영해도 중복 추가 없음
+
+
+def test_apply_keeps_gold_documents_out_of_judged(tmp_path):
+    eval_set, judged = tmp_path / "eval_set.jsonl", tmp_path / "pool_judged.json"
+    eval_set.write_text(json.dumps({"id": "t007", "q": "?", "type": "temporal", "gold_doc_ids": ["g"],
+                                    "answer_key": "30만원"}, ensure_ascii=False), encoding="utf-8")
+    # 체크하지 않은 판정표를 먼저 반영해 정답 문서 g 가 '정답 아님'에 남은 상태
+    judged.write_text(json.dumps({"t007": ["g", "n"], "f001": ["z"]}), encoding="utf-8")
+
+    # 처음엔 정답 아님으로 판정했던 n 을 다시 판정해 정답으로 바꾼다
+    assert apply_judgments(eval_set, judged, {"t007": (["n"], ["m"])}) == {"t007": 1}
+
+    assert json.loads(judged.read_text(encoding="utf-8")) == {"f001": ["z"], "t007": ["m"]}

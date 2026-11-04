@@ -9,7 +9,8 @@
   판정한다: 문항의 answer_key 에 해당하는 사실이 본문에 있으면 정답이다
 - 판정표에는 answer_key 의 수치가 나오는 부분을 발췌해 보여 준다 (수치가 없으면 본문 앞부분)
 - --apply 는 체크한 문서를 gold_doc_ids 에 추가하고, 체크하지 않은 문서는 eval/pool_judged.json 에
-  '정답 아님'으로 기록한다. 다음 실험 결과로 다시 모을 때 이미 판정한 문서는 빠진다
+  '정답 아님'으로 기록한다 (정답 목록에 있는 문서는 기록하지 않는다). 다음 실험 결과로 다시 모을 때
+  이미 판정한 문서는 빠진다
 - 판정은 비교할 모든 실험 결과에 똑같이 적용해야 한다. 판정이 끝나면 비교 대상 실험을 모두 다시 측정한다
 - 판정표는 기사 본문 일부를 담으므로 git 에 올리지 않는다 (data/ 아래, .gitignore)
 """
@@ -136,6 +137,7 @@ def parse_judgments(text: str) -> dict[str, tuple[list[str], list[str]]]:
 def apply_judgments(eval_set: Path, judged_path: Path, judgments: dict[str, tuple[list[str], list[str]]]) -> dict[str, int]:
     """체크한 문서를 gold_doc_ids 에 추가하고, 나머지를 '정답 아님'으로 기록한다. 문항별 추가 건수를 반환한다."""
     added: dict[str, int] = {}
+    gold: dict[str, set[str]] = {}
     lines = eval_set.read_text(encoding="utf-8-sig").splitlines()
     out = []
     for line in lines:
@@ -149,13 +151,20 @@ def apply_judgments(eval_set: Path, judged_path: Path, judgments: dict[str, tupl
             row["gold_doc_ids"] = row["gold_doc_ids"] + new
             added[row["id"]] = len(new)
             line = json.dumps(row, ensure_ascii=False)
+        gold[row["id"]] = set(row["gold_doc_ids"])
         out.append(line)
     eval_set.write_text("\n".join(out) + "\n", encoding="utf-8")
 
+    # 정답 목록에 있는 문서는 '정답 아님'에서 뺀다. 체크하지 않은 판정표를 먼저 반영했다가 체크 후 다시 반영하면
+    # 같은 문서가 양쪽에 남는다 (v1.1 반영 때 27건). 재판정으로 정답이 된 문서도 같은 방식으로 빠진다
     judged = load_judged(judged_path)
-    for qid, (_, negative) in judgments.items():
-        if negative:
-            judged[qid] = sorted(set(judged.get(qid, [])) | set(negative))
+    for qid in sorted(set(judged) | set(judgments)):
+        negative = judgments.get(qid, ([], []))[1]
+        merged = (set(judged.get(qid, [])) | set(negative)) - gold.get(qid, set())
+        if merged:
+            judged[qid] = sorted(merged)
+        else:
+            judged.pop(qid, None)
     judged_path.write_text(json.dumps(dict(sorted(judged.items())), ensure_ascii=False, indent=1) + "\n",
                            encoding="utf-8")
     return added
