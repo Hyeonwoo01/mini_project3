@@ -58,10 +58,14 @@ def test_parse_list_without_search_or_paging():
 
 def test_parse_attachments_keeps_file_links_only():
     attachments = kr.parse_attachments(detail_html([(11, "보도자료.hwpx"), (12, "보도자료.PDF")]))
-    assert [(a.name, a.url, a.is_pdf) for a in attachments] == [
-        ("보도자료.hwpx", "https://www.korea.kr/common/download.do?fileId=11&tblKey=GMN", False),
-        ("보도자료.PDF", "https://www.korea.kr/common/download.do?fileId=12&tblKey=GMN", True),
+    assert [(a.name, a.url, a.extension) for a in attachments] == [
+        ("보도자료.hwpx", "https://www.korea.kr/common/download.do?fileId=11&tblKey=GMN", "hwpx"),
+        ("보도자료.PDF", "https://www.korea.kr/common/download.do?fileId=12&tblKey=GMN", "pdf"),
     ]
+    assert kr.pick_original(attachments).extension == "pdf"            # PDF 우선
+    assert kr.pick_original(attachments[:1]).extension == "hwpx"       # 없으면 HWPX
+    with pytest.raises(kr.NoOriginal, match="첨부: hwp, jpg"):
+        kr.pick_original([kr.Attachment("a.hwp", "u1"), kr.Attachment("b.JPG", "u2")])
 
 
 @pytest.fixture
@@ -99,7 +103,7 @@ def test_run_saves_pdf_for_wanted_ministry_and_resumes(tmp_path, make_fetcher, h
 
     stats = kr.run(["소상공인"], ministries=["중소벤처기업부"], fetcher=make_fetcher(), db_path=db)
 
-    assert (stats.saved, stats.skipped_ministry, stats.failed, stats.no_pdf) == (1, 1, [], [])
+    assert (stats.saved, stats.skipped_ministry, stats.failed, stats.no_original) == (1, 1, [], [])
     assert _view(102) not in http.calls and _download(11) not in http.calls
     doc_id = next(iter(raw_store))
     with open_db(db, read_only=True) as conn:
@@ -117,20 +121,23 @@ def test_run_saves_pdf_for_wanted_ministry_and_resumes(tmp_path, make_fetcher, h
     assert _view(101) not in http.calls[calls_before:]          # 이미 받은 문서는 상세도 다시 열지 않는다
 
 
-def test_run_records_missing_pdf_and_bad_download(tmp_path, make_fetcher, http, raw_store):
+def test_run_falls_back_to_hwpx_and_reports_missing_or_bad_originals(tmp_path, make_fetcher, http, raw_store):
     http.route(ROBOTS, (404, ""))
     http.route(kr.LIST_URL, (200, list_html([
-        _item(201, "한글 첨부만", "2026.01.02", "행정안전부"),
+        _item(201, "옛 한글 첨부만", "2026.01.02", "행정안전부"),
         _item(202, "PDF 대신 오류 화면", "2026.01.03", "행정안전부"),
+        _item(203, "HWPX 만 있음", "2026.01.04", "행정안전부"),
     ])))
     http.route(_view(201), (200, detail_html([(21, "원문.hwp")])))
     http.route(_view(202), (200, detail_html([(22, "원문.pdf")])))
     http.route(_download(22), (200, "<html>오류</html>"))
+    http.route(_view(203), (200, detail_html([(23, "원문.hwpx")])))
+    http.route(_download(23), (200, b"PK\x03\x04 fake zip"))
 
     stats = kr.run(["지역사랑상품권"], fetcher=make_fetcher(), db_path=tmp_path / "docs.db")
 
-    assert stats.saved == 0 and not raw_store
-    assert len(stats.no_pdf) == 1 and "한글 첨부만" in stats.no_pdf[0]
+    assert stats.saved == 1 and [path.suffix for path in raw_store.values()] == [".hwpx"]
+    assert stats.no_original == ["2026-01-02 행정안전부 옛 한글 첨부만 — 첨부: hwp"]
     assert len(stats.failed) == 1 and "PDF 가 아닌 응답" in stats.failed[0]
 
 

@@ -10,7 +10,9 @@
 """
 
 import re
+import zipfile
 from pathlib import Path
+from xml.etree import ElementTree
 
 import pymupdf
 
@@ -35,6 +37,11 @@ _BLANK_LINES = re.compile(r"\n\s*\n+")
 _PAGE_NUMBER_LINE = re.compile(r"^\s*-\s*\d+\s*-\s*$")
 
 
+# HWPX(OWPML) 본문: zip 안의 Contents/section0.xml, section1.xml ... 에 문단(hp:p)과 글자(hp:t)가 있다
+_HWPX_SECTION = re.compile(r"Contents/section(\d+)\.xml")
+MAX_HWPX_XML_BYTES = 50 * 1024 * 1024   # 압축 해제 크기 상한 (비정상 파일 방어)
+
+
 class ParseError(Exception):
     """원본 파일을 열 수 없거나 지원하지 않는 형식."""
 
@@ -44,11 +51,15 @@ def extract_text(raw_path: str) -> str:
 
     PDF (정책브리핑 보도자료 원문): 쪽마다 읽는 순서대로 텍스트를 뽑고 쪽 번호만 있는 줄을 뺀다.
     표는 셀 글자가 줄 단위로 나온다. 스캔 이미지 PDF 는 글자가 거의 없어 품질 필터에서 제외된다.
+    HWPX (PDF 가 없는 보도자료): 구역(section) 순서대로 문단마다 한 줄. 표 안의 문단도 각각 한 줄이 된다.
     """
     path = Path(raw_path)
     if not path.is_absolute():
         path = PROJECT_ROOT / path
-    if path.suffix.lower() != ".pdf":
+    suffix = path.suffix.lower()
+    if suffix == ".hwpx":
+        return _hwpx_text(path, raw_path)
+    if suffix != ".pdf":
         raise ParseError(f"지원하지 않는 원본 형식입니다: {raw_path}")
     try:
         with pymupdf.open(path) as doc:
@@ -57,6 +68,52 @@ def extract_text(raw_path: str) -> str:
         raise ParseError(f"PDF 를 열 수 없습니다: {raw_path} ({exc})") from exc
     lines = [line for page in pages for line in page.splitlines() if not _PAGE_NUMBER_LINE.match(line)]
     return "\n".join(lines)
+
+
+def _local(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1]
+
+
+def _hwpx_text(path: Path, raw_path: str) -> str:
+    try:
+        with zipfile.ZipFile(path) as archive:
+            sections = sorted((int(m.group(1)), name) for name in archive.namelist()
+                              if (m := _HWPX_SECTION.fullmatch(name)))
+            if not sections:
+                raise ParseError(f"HWPX 본문 구역이 없습니다: {raw_path}")
+            lines: list[str] = []
+            for _, name in sections:
+                if archive.getinfo(name).file_size > MAX_HWPX_XML_BYTES:
+                    raise ParseError(f"HWPX 구역이 너무 큽니다: {raw_path} {name}")
+                _collect_paragraphs(ElementTree.fromstring(archive.read(name)), lines)
+    except (zipfile.BadZipFile, ElementTree.ParseError, FileNotFoundError) as exc:
+        raise ParseError(f"HWPX 를 열 수 없습니다: {raw_path} ({exc})") from exc
+    return "\n".join(lines)
+
+
+def _collect_paragraphs(root: ElementTree.Element, lines: list[str]) -> None:
+    """문단(p)마다 글자(t)를 한 줄로 모은다. 표가 든 문단은 표 앞 글자, 셀 문단들, 표 뒤 글자 순서가 된다."""
+    current: list[str] = []
+
+    def flush() -> None:
+        if (line := "".join(current).strip()):
+            lines.append(line)
+        current.clear()
+
+    def visit(element: ElementTree.Element) -> None:
+        for child in element:
+            name = _local(child.tag)
+            if name == "p":
+                flush()
+                visit(child)
+                flush()
+            elif name == "t":
+                current.append("".join(child.itertext()))
+            else:
+                visit(child)
+
+    visit(root)
+    flush()
 
 
 def clean_text(text: str) -> str:

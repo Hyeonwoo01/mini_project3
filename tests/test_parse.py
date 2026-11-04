@@ -1,3 +1,5 @@
+import zipfile
+
 import pymupdf
 import pytest
 
@@ -53,3 +55,41 @@ def test_extract_text_raises_parse_error(tmp_path, name, content):
         path.write_bytes(content)
     with pytest.raises(ParseError):
         extract_text(str(path))
+
+
+HP = "http://www.hancom.co.kr/hwpml/2011/paragraph"
+
+
+def _hwpx(path, sections):
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("mimetype", "application/hwp+zip")
+        for name, body in sections.items():
+            archive.writestr(name, f'<hs:sec xmlns:hs="http://www.hancom.co.kr/hwpml/2011/section" '
+                                   f'xmlns:hp="{HP}">{body}</hs:sec>')
+
+
+def test_extract_text_reads_hwpx_paragraphs_in_order_including_tables(tmp_path):
+    path = tmp_path / "press.hwpx"
+    table = ('<hp:tbl><hp:tr><hp:tc><hp:subList><hp:p><hp:run><hp:t>구분</hp:t></hp:run></hp:p></hp:subList></hp:tc>'
+             '<hp:tc><hp:subList><hp:p><hp:run><hp:t>3조 4,582억원</hp:t></hp:run></hp:p></hp:subList></hp:tc>'
+             '</hp:tr></hp:tbl>')
+    _hwpx(path, {
+        "Contents/section1.xml": "<hp:p><hp:run><hp:t>둘째 구역</hp:t></hp:run></hp:p>",
+        "Contents/section0.xml": (
+            "<hp:p><hp:run><hp:t>소상공인 </hp:t></hp:run><hp:run><hp:t>지원사업 시행</hp:t></hp:run></hp:p>"
+            f"<hp:p><hp:run><hp:t>표 앞</hp:t>{table}<hp:t>표 뒤</hp:t></hp:run></hp:p>"
+            "<hp:p><hp:run><hp:t>  </hp:t></hp:run></hp:p>"),
+    })
+
+    assert extract_text(str(path)).splitlines() == [
+        "소상공인 지원사업 시행", "표 앞", "구분", "3조 4,582억원", "표 뒤", "둘째 구역"]
+
+
+def test_extract_text_rejects_hwpx_without_sections(tmp_path):
+    path = tmp_path / "empty.hwpx"
+    _hwpx(path, {})
+    with pytest.raises(ParseError, match="구역"):
+        extract_text(str(path))
+    (tmp_path / "broken.hwpx").write_bytes(b"PK not really")
+    with pytest.raises(ParseError):
+        extract_text(str(tmp_path / "broken.hwpx"))

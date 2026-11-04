@@ -12,13 +12,14 @@
   strong(제목), span.source > span (게시일, 부처명). 게시일은 일반 목록이 2026.11.03, 검색 결과가 2026-11-03
   형식이다. 마지막 쪽은 div.paging a.last 의 pageLink(n)
 - 상세 pressReleaseView.do?newsId=: 본문은 HTML 에 없고 문서뷰어 iframe 으로 따로 불러온다.
-  대신 div.filedown 에 원문 첨부(HWPX·PDF)가 있어 PDF 를 받아 본문으로 쓴다 (텍스트 추출은 indexer)
+  대신 div.filedown 에 원문 첨부가 있어 PDF 를, 없으면 HWPX 를 받아 본문으로 쓴다 (텍스트 추출은 indexer).
+  옛 HWP(바이너리) 만 있는 보도자료는 받지 않고 '원문 없음'으로 보고한다 (첨부 확장자를 함께 출력)
 - 이용 조건: 상세 화면 하단 '텍스트에 한하여 공공누리 제1유형(출처표시)'. 출처(부처·URL)를 메타데이터로 보존한다
 
 부처 거르기는 목록의 부처명으로 한다. 목록 화면의 부처 선택 파라미터(repCode)는 동작을 확인하지 못했다.
 검색은 본문·첨부까지 찾아서 지나가듯 언급한 보도자료도 나온다 ('카드수수료' 검색에 가상자산·중동 상황 점검
 보도자료). 그래서 --title-keyword 로 제목에 주제어가 있는 것만 받는다. --dry-run 으로 받을 목록을 먼저 본다.
-이미 PDF 를 받은 문서는 다시 받지 않으므로, 중단된 수집은 같은 명령으로 이어서 실행하면 된다.
+이미 원문을 받은 문서는 다시 받지 않으므로, 중단된 수집은 같은 명령으로 이어서 실행하면 된다.
 요청은 collector/fetch.py 를 통해서만 보낸다 (robots.txt·딜레이·User-Agent).
 """
 
@@ -76,8 +77,25 @@ class Attachment:
     url: str
 
     @property
-    def is_pdf(self) -> bool:
-        return self.name.lower().endswith(".pdf")
+    def extension(self) -> str:
+        return Path(self.name).suffix.lstrip(".").lower()
+
+
+# 받을 원문 형식과 우선순위, 파일 시작 바이트. HWPX 는 zip 묶음이다
+ORIGINAL_FORMATS: dict[str, bytes] = {"pdf": b"%PDF", "hwpx": b"PK"}
+
+
+class NoOriginal(Exception):
+    """본문을 추출할 수 있는 원문 첨부(PDF·HWPX)가 없다."""
+
+
+def pick_original(attachments: list[Attachment]) -> Attachment:
+    for extension in ORIGINAL_FORMATS:
+        found = next((a for a in attachments if a.extension == extension), None)
+        if found:
+            return found
+    kinds = ", ".join(a.extension or "?" for a in attachments) or "첨부 없음"
+    raise NoOriginal(f"첨부: {kinds}")
 
 
 @dataclass
@@ -89,7 +107,7 @@ class CrawlStats:
     planned: list[str] = field(default_factory=list)   # --dry-run 에서 받을 대상
     already: int = 0
     saved: int = 0
-    no_pdf: list[str] = field(default_factory=list)
+    no_original: list[str] = field(default_factory=list)
     failed: list[str] = field(default_factory=list)
 
     def summary(self) -> str:
@@ -97,8 +115,8 @@ class CrawlStats:
                  f"  부처 조건 밖 {self.skipped_ministry} · 제목 조건 밖 {self.skipped_title} · "
                  f"이미 수집 {self.already} · 새로 저장 {self.saved}"
                  + (f" · 받을 대상 {len(self.planned)} (--dry-run)" if self.planned else ""),
-                 f"  PDF 첨부 없음 {len(self.no_pdf)} · 실패 {len(self.failed)}"]
-        lines += [f"    PDF 없음: {item}" for item in self.no_pdf[:10]]
+                 f"  원문 첨부(PDF·HWPX) 없음 {len(self.no_original)} · 실패 {len(self.failed)}"]
+        lines += [f"    원문 없음: {item}" for item in self.no_original[:40]]
         lines += [f"    실패: {item}" for item in self.failed[:10]]
         return "\n".join(lines)
 
@@ -149,28 +167,26 @@ def _saved_raw_path(conn, doc_id: str) -> str | None:
     return None
 
 
-def collect_item(fetcher: Fetcher, item: ListItem, query: str) -> DocumentRecord | None:
-    """상세 페이지에서 PDF 첨부를 찾아 저장하고 문서 레코드를 만든다. PDF 가 없으면 None."""
+def collect_item(fetcher: Fetcher, item: ListItem, query: str) -> DocumentRecord:
+    """상세 페이지에서 원문 첨부(PDF, 없으면 HWPX)를 받아 저장하고 문서 레코드를 만든다. 없으면 NoOriginal."""
     if item.published_at is None:
         # doc_id 와 시점 질문이 게시일에 의존하므로 날짜 없이 저장하지 않는다 (목록 구조가 바뀐 경우)
         raise ValueError("목록에서 게시일을 읽지 못함")
     detail = fetcher.get(item.url)
     if detail.status != 200:
         raise requests.HTTPError(f"상세 페이지 {detail.status}")
-    pdf = next((a for a in parse_attachments(detail.text) if a.is_pdf), None)
-    if pdf is None:
-        return None
-    file = fetcher.get(pdf.url)
-    if file.status != 200 or not file.content.startswith(b"%PDF"):
-        raise ValueError(f"PDF 가 아닌 응답 ({file.status}, {file.content_type})")
+    original = pick_original(parse_attachments(detail.text))
+    file = fetcher.get(original.url)
+    if file.status != 200 or not file.content.startswith(ORIGINAL_FORMATS[original.extension]):
+        raise ValueError(f"{original.extension.upper()} 가 아닌 응답 ({file.status}, {file.content_type})")
     doc_id = make_doc_id(DOC_ID_PREFIX, item.url, item.published_at)
-    raw_path = save_raw(DocType.PRESS_RELEASE, doc_id, file.content, "pdf")
+    raw_path = save_raw(DocType.PRESS_RELEASE, doc_id, file.content, original.extension)
     return DocumentRecord(
         doc_id=doc_id, doc_type=DocType.PRESS_RELEASE, source=item.ministry or "정책브리핑", title=item.title,
         url=item.url, published_at=item.published_at, collected_at=file.collected_at,
         collect_method=CollectMethod.CRAWL, keyword=query, raw_path=raw_path,
-        extra={"portal": "정책브리핑", "news_id": item.news_id, "attachment_name": pdf.name,
-               "attachment_url": pdf.url, "license": LICENSE},
+        extra={"portal": "정책브리핑", "news_id": item.news_id, "attachment_name": original.name,
+               "attachment_url": original.url, "license": LICENSE},
     )
 
 
@@ -216,12 +232,12 @@ def run(queries: list[str], max_pages: int | None = None, ministries: list[str] 
                         continue
                     try:
                         record = collect_item(fetcher, item, query)
+                    except NoOriginal as exc:
+                        stats.no_original.append(f"{label} — {exc}")
+                        continue
                     except (requests.RequestException, RobotsDisallowed, ValueError) as exc:
                         message = describe_error(exc) if isinstance(exc, requests.RequestException) else str(exc)
                         stats.failed.append(f"{label} — {message}")
-                        continue
-                    if record is None:
-                        stats.no_pdf.append(label)
                         continue
                     upsert_documents(conn, [record])
                     conn.commit()           # 문서마다 저장해 중단돼도 받은 만큼은 남는다
