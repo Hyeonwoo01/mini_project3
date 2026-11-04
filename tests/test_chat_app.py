@@ -153,3 +153,13 @@ def test_reset_clears_conversation(use_chain):
 def test_chat_history_skips_failed_turns():
     turns = [chat.Turn(question="a", answer="A"), chat.Turn(question="b", error="X"), chat.Turn(question="c", answer="C")]
     assert chat.chat_history(turns) == [("user", "a"), ("assistant", "A"), ("user", "c"), ("assistant", "C")]
+
+
+def test_example_questions_are_eval_set_questions():
+    """빈 화면의 예시 질문은 README '대표 질문'(평가셋 문항)과 같아야 한다 — 결과가 측정된 질문만 보여 준다."""
+    import json
+    from pathlib import Path
+
+    eval_set = Path(__file__).resolve().parent.parent / "eval" / "eval_set.jsonl"
+    questions = {json.loads(line)["q"] for line in eval_set.read_text(encoding="utf-8").splitlines() if line.strip()}
+    assert set(chat.EXAMPLE_QUESTIONS) <= questions
