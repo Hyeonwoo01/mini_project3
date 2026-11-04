@@ -108,3 +108,47 @@ def test_extract_text_records_mupdf_repairs_as_warnings_without_printing(tmp_pat
 
     assert len(warnings) == 1 and "invalid key in dict" in warnings[0]
     assert "MuPDF error" not in capfd.readouterr().err
+
+
+def _write_pdf(path, width, height, texts):
+    pdf = pymupdf.open()
+    page = pdf.new_page(width=width, height=height)
+    for (x, y), text in texts:
+        page.insert_text((x, y), text, fontname="korea")
+    pdf.save(path)
+    return str(path)
+
+
+def test_extract_text_reads_two_up_pages_left_then_right(tmp_path):
+    # A4 두 쪽을 가로 한 장에 담은 보도자료: 같은 높이의 줄이 왼쪽·오른쪽 쪽에 따로 있다
+    path = _write_pdf(tmp_path / "2up.pdf", 842, 595, [
+        ((50, 100), "왼쪽 첫 문단"), ((471, 100), "오른쪽 첫 문단"),
+        ((50, 130), "왼쪽 둘째 문단"), ((471, 130), "오른쪽 둘째 문단"),
+        ((200, 570), "- 1 -"), ((620, 570), "- 2 -"),
+    ])
+    lines = [line for line in extract_text(path).splitlines() if line.strip()]
+    assert lines == ["왼쪽 첫 문단", "왼쪽 둘째 문단", "오른쪽 첫 문단", "오른쪽 둘째 문단"]
+
+
+def test_extract_text_keeps_reading_order_on_landscape_page_spanning_middle(tmp_path):
+    # 가운데를 가로지르는 표·문장이 있는 가로 쪽은 한 쪽으로 보고 위아래 순서대로 읽는다
+    path = _write_pdf(tmp_path / "wide.pdf", 842, 595, [
+        ((50, 100), "가로로 긴 표 제목이 쪽 가운데를 지나 오른쪽까지 이어지는 한 줄입니다 계속 이어집니다"),
+        ((50, 130), "왼쪽 셀"), ((471, 130), "오른쪽 셀"),
+    ])
+    text = extract_text(path)
+    # 반으로 자르면 가운데를 지나는 문장이 잘린다. 한 쪽으로 읽으면 문장이 온전하고 위아래 순서가 유지된다
+    assert "가로로 긴 표 제목이 쪽 가운데를 지나 오른쪽까지 이어지는 한 줄입니다 계속 이어집니다" in text
+    assert text.index("가로로") < text.index("왼쪽 셀") < text.index("오른쪽 셀")
+
+
+def test_extract_text_drops_official_contact_lines_but_keeps_call_centers(tmp_path):
+    path = _write_pdf(tmp_path / "contacts.pdf", 595, 842, [
+        ((50, 100), "소상공인에게 최대 30만원을 지원한다."),
+        ((50, 130), "(소상공인시장진흥공단 콜센터 : ☎1533-0600)"),
+        ((50, 160), "책임자 과 장 안원호 (044-204-7821)"),
+        ((50, 190), "사무관 김태선 (044-204-7853)"),
+        ((50, 220), "부담경감 주무관 전보람 (044-204-7863)"),
+    ])
+    lines = [line for line in extract_text(path).splitlines() if line.strip()]
+    assert lines == ["소상공인에게 최대 30만원을 지원한다.", "(소상공인시장진흥공단 콜센터 : ☎1533-0600)"]
