@@ -1,0 +1,37 @@
+# 디자인 토큰 (app/theme.py 와 같은 값). 테마로 안 되는 부분은 app/theme.py 의 CSS 로 보완한다.
+# streamlit run 을 프로젝트 루트에서 실행해야 이 설정을 읽는다.
+
+[theme]
+base = "light"
+primaryColor = "#0066cc"            # Action Blue: 클릭 가능한 요소에만
+backgroundColor = "#f5f5f7"         # Parchment
+secondaryBackgroundColor = "#ffffff"
+textColor = "#1d1d1f"               # Near-Black Ink
+linkColor = "#0066cc"
+linkUnderline = false
+borderColor = "#e0e0e0"             # Hairline
+baseRadius = "11px"
+buttonRadius = "9999px"             # 캡슐형 버튼
+# Pretendard (웹폰트를 못 받으면 브라우저 기본 글꼴로 표시)
+font = "Pretendard Variable:https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css"
+# 시맨틱 상태 색 (배지·안내에만): blue=근거 번호, green=1차 자료, orange=정보 부족, red=오류
+blueColor = "#0066cc"
+blueBackgroundColor = "#e6f2ff"
+blueTextColor = "#0066cc"
+greenColor = "#1d8348"
+greenBackgroundColor = "#e8f8f0"
+greenTextColor = "#1d8348"
+orangeColor = "#b76e00"
+orangeBackgroundColor = "#fef5e7"
+orangeTextColor = "#b76e00"
+redColor = "#c9342b"
+redBackgroundColor = "#fdecea"
+redTextColor = "#c9342b"
+# 차트: 별도 팔레트 없이 Action Blue · Ink · 회색 · 시맨틱 색만
+chartCategoricalColors = ["#0066cc", "#1d1d1f", "#d2d2d7", "#1d8348", "#b76e00", "#c9342b"]
+
+[client]
+toolbarMode = "minimal"
+
+[browser]
+gatherUsageStats = false

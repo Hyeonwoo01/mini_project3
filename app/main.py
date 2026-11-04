@@ -15,13 +15,17 @@ if str(PROJECT_ROOT) not in sys.path:
 import streamlit as st  # noqa: E402
 
 from app import chat, dashboard  # noqa: E402
+from app.theme import WORDMARK, inject_theme  # noqa: E402
 
-st.set_page_config(page_title="RAG 질의응답", page_icon="💬", layout="wide")
+st.set_page_config(page_title=WORDMARK, page_icon=":material/manage_search:", layout="wide")
+inject_theme()
 
+# 페이지 링크는 상단 검정 글로벌 내비게이션에 둔다 (app/theme.py)
 page = st.navigation(
     [
-        st.Page(chat.render, title="챗봇", icon="💬", url_path="chat", default=True),
-        st.Page(dashboard.render, title="평가 결과", icon="📊", url_path="evaluation"),
-    ]
+        st.Page(chat.render, title="근거 질의응답", url_path="chat", default=True),
+        st.Page(dashboard.render, title="평가 결과", url_path="evaluation"),
+    ],
+    position="top",
 )
 page.run()
