@@ -1,0 +1,51 @@
+{
+  "answerable": {
+    "count": 8,
+    "grades": {
+      "정확": 7,
+      "부분": 0,
+      "오답": 1
+    },
+    "accuracy": 0.875,
+    "accuracy_with_partial": 0.875,
+    "by_type": {
+      "comparison": {
+        "count": 1,
+        "정확": 1,
+        "부분": 0,
+        "오답": 0,
+        "accuracy": 1.0
+      },
+      "fact": {
+        "count": 5,
+        "정확": 4,
+        "부분": 0,
+        "오답": 1,
+        "accuracy": 0.8
+      },
+      "temporal": {
+        "count": 2,
+        "정확": 2,
+        "부분": 0,
+        "오답": 0,
+        "accuracy": 1.0
+      }
+    }
+  },
+  "unanswerable": {
+    "count": 0,
+    "correct": 0
+  },
+  "citation": {
+    "judged": 7,
+    "ok": 7,
+    "accuracy": 1.0
+  },
+  "issues": [
+    {
+      "id": "f021",
+      "grade": "오답",
+      "note": "잘못된 거절: 1위 유사도 0.484로 임계값 0.5 미만 — 1차 자료 포함 설정은 근거 보도자료가 상위 5건 밖(1위 4월 추경 기사)"
+    }
+  ]
+}

@@ -390,6 +390,8 @@ def rescore(source: Path, tag: str, settings) -> Path:
     k = old["config"]["k"]
     records = [json.loads(line) for line in (source / "retrieval.jsonl").read_text(encoding="utf-8").splitlines()]
     items = load_eval_set(settings.eval_set_path)
+    if old["config"].get("ids"):        # --ids 로 일부 문항만 실행한 결과는 그 문항만 다시 채점한다
+        items = [item for item in items if item.id in set(old["config"]["ids"])]
     rescored = rescore_records(records, items, k)
     summary = summarize(rescored, k)
     config = {**old["config"], "tag": tag, "eval_set_items": len(items), "git_commit": _git_commit(),

@@ -1,0 +1,92 @@
+{
+  "config": {
+    "tag": "primary8-news-v2.0",
+    "collection": "docs__c500",
+    "k": 5,
+    "mode": "hybrid",
+    "hybrid": {
+      "candidates": 50,
+      "rrf_k": 60
+    },
+    "doc_types": [
+      "news"
+    ],
+    "max_chunks_per_doc": 1,
+    "collapse_same_title": true,
+    "collection_metadata": {
+      "chunk_config": "c500",
+      "chunk_overlap": 100,
+      "include_title": true,
+      "chunk_size": 500,
+      "created_at": "2026-11-03T05:01:17+00:00",
+      "embedding_model": "text-embedding-3-small"
+    },
+    "eval_set_items": 8,
+    "ids": [
+      "f021",
+      "f023",
+      "f024",
+      "f026",
+      "f027",
+      "t013",
+      "t014",
+      "c005"
+    ],
+    "git_commit": "bee195f",
+    "chain": null,
+    "evaluated_at": "2026-11-04T11:32:51",
+    "rescored_from": "20261104-1122_primary8-news"
+  },
+  "overall": {
+    "count": 8,
+    "hit@1": 0.375,
+    "hit@3": 0.375,
+    "hit@5": 0.5,
+    "mrr": 0.4062
+  },
+  "by_type": {
+    "comparison": {
+      "count": 1,
+      "hit@1": 1,
+      "hit@3": 1,
+      "hit@5": 1,
+      "mrr": 1.0
+    },
+    "fact": {
+      "count": 5,
+      "hit@1": 0.4,
+      "hit@3": 0.4,
+      "hit@5": 0.6,
+      "mrr": 0.45
+    },
+    "temporal": {
+      "count": 2,
+      "hit@1": 0,
+      "hit@3": 0,
+      "hit@5": 0,
+      "mrr": 0.0
+    }
+  },
+  "top_score": {
+    "answerable_hit": {
+      "count": 3,
+      "min": 0.4844,
+      "median": 0.5981,
+      "max": 0.6569
+    },
+    "answerable_miss": {
+      "count": 4,
+      "min": 0.5356,
+      "median": 0.5606,
+      "max": 0.5915
+    },
+    "unanswerable": {
+      "count": 0
+    }
+  },
+  "latency_ms": {
+    "mean": 858.7,
+    "p95": 2234.3
+  },
+  "unanswerable_count": 0
+}
