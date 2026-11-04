@@ -1,0 +1,88 @@
+{
+  "config": {
+    "tag": "hybrid-c500-kb2",
+    "collection": "docs__c500",
+    "k": 5,
+    "mode": "hybrid",
+    "hybrid": {
+      "candidates": 50,
+      "rrf_k": 60
+    },
+    "max_chunks_per_doc": 1,
+    "collapse_same_title": true,
+    "collection_metadata": {
+      "chunk_config": "c500",
+      "chunk_overlap": 100,
+      "chunk_size": 500,
+      "created_at": "2026-11-03T05:01:17+00:00",
+      "embedding_model": "text-embedding-3-small",
+      "include_title": true
+    },
+    "eval_set_items": 30,
+    "git_commit": "664b756",
+    "chain": null,
+    "evaluated_at": "2026-11-04T10:16:00"
+  },
+  "overall": {
+    "count": 24,
+    "hit@1": 0.75,
+    "hit@3": 0.875,
+    "hit@5": 0.9167,
+    "mrr": 0.816
+  },
+  "by_type": {
+    "comparison": {
+      "count": 4,
+      "hit@1": 0.5,
+      "hit@3": 0.75,
+      "hit@5": 0.75,
+      "mrr": 0.625
+    },
+    "fact": {
+      "count": 10,
+      "hit@1": 0.9,
+      "hit@3": 1,
+      "hit@5": 1,
+      "mrr": 0.95
+    },
+    "synthesis": {
+      "count": 4,
+      "hit@1": 1,
+      "hit@3": 1,
+      "hit@5": 1,
+      "mrr": 1.0
+    },
+    "temporal": {
+      "count": 6,
+      "hit@1": 0.5,
+      "hit@3": 0.6667,
+      "hit@5": 0.8333,
+      "mrr": 0.5972
+    }
+  },
+  "top_score": {
+    "answerable_hit": {
+      "count": 18,
+      "min": 0.5698,
+      "median": 0.645,
+      "max": 0.7146
+    },
+    "answerable_miss": {
+      "count": 2,
+      "min": 0.645,
+      "median": 0.6703,
+      "max": 0.6956
+    },
+    "unanswerable": {
+      "count": 6,
+      "min": 0.4472,
+      "median": 0.5577,
+      "max": 0.6808
+    }
+  },
+  "latency_ms": {
+    "mean": 420.0,
+    "p95": 588.9
+  },
+  "unanswerable_count": 6
+}
