@@ -71,6 +71,15 @@ PROBE_TARGETS: tuple[ProbeTarget, ...] = (
                 "https://www.law.go.kr/DRF/lawSearch.do?target=law&type=XML&query=%EC%86%8C%EC%83%81%EA%B3%B5%EC%9D%B8",
                 verified=True),
     ProbeTarget("data_go_kr", "공공데이터포털 Open API 서버", "https://apis.data.go.kr/", verified=True),
+    # 연구기관 보고서 (선별 수집 10~20건). 보고서 목록 주소를 아직 모르므로 첫 화면에서 '연구보고서' 등
+    # 키워드 링크를 찾는다. 주소는 기관 대표 주소 (웹 검색으로 목록 주소를 확인하지 못함)
+    ProbeTarget("nkis", "국가정책연구포털 (국책연구기관 보고서 통합)", "https://www.nkis.re.kr/",
+                keywords=("연구보고서", "통합검색", "보고서")),
+    ProbeTarget("si", "서울연구원", "https://www.si.re.kr/", keywords=("연구보고서", "정책리포트", "보고서")),
+    ProbeTarget("kosi", "중소벤처기업연구원", "https://www.kosi.re.kr/", keywords=("연구보고서", "소상공인", "보고서")),
+    ProbeTarget("kdi", "한국개발연구원", "https://www.kdi.re.kr/", keywords=("연구보고서", "KDI FOCUS", "보고서")),
+    ProbeTarget("kiet", "산업연구원", "https://www.kiet.re.kr/", keywords=("연구보고서", "이슈", "보고서")),
+    ProbeTarget("kipf", "한국조세재정연구원", "https://www.kipf.re.kr/", keywords=("연구보고서", "보고서")),
 )
 
 
