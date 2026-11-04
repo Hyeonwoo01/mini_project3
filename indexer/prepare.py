@@ -33,6 +33,7 @@ class PrepareStats:
     kept_by_scope: Counter[str] = field(default_factory=Counter)
     keyword_indexed: int = 0
     parse_errors: list[str] = field(default_factory=list)   # 원본 파일을 읽지 못한 문서 (본문 없음으로 처리)
+    parse_warnings: list[str] = field(default_factory=list) # 구조 오류를 복구하며 읽은 원본 (본문은 정상 사용)
 
     def summary(self) -> str:
         lines = [f"[prepare 결과] 품질={self.quality_config} 중복={self.dedup_config}",
@@ -40,6 +41,9 @@ class PrepareStats:
         if self.parse_errors:
             lines.append(f"  원본 파싱 실패: {len(self.parse_errors):,} (본문 없음으로 처리)")
             lines += [f"    {message}" for message in self.parse_errors[:5]]
+        if self.parse_warnings:
+            lines.append(f"  원본 복구 경고: {len(self.parse_warnings):,} (MuPDF 가 구조 오류를 고쳐 읽음, 본문 사용)")
+            lines += [f"    {message}" for message in self.parse_warnings[:3]]
         lines += [f"  제외 ({reason}): {n:,}" for reason, n in self.excluded_reasons.most_common()]
         lines += [f"  중복 (대표 문서로 대체): {self.statuses['duplicate']:,}",
                   f"  유지: {self.statuses['kept']:,}"]
@@ -49,14 +53,20 @@ class PrepareStats:
         return "\n".join(lines)
 
 
-def _document_text(row, errors: list[str]) -> str:
-    if row["raw_text"]:
+def _document_text(row, stats: PrepareStats) -> str:
+    # 수집 시점에 본문을 확보한 문서(제공 뉴스, 서울시 공고)는 빈 본문이어도 그 값을 쓴다.
+    # 원본 파일은 수집기가 본문을 따로 저장하지 않은 문서(보도자료 PDF·HWPX)에서만 읽는다.
+    if row["raw_text"] is not None:
         return clean_text(row["raw_text"])
     if row["raw_path"]:
+        notes: list[str] = []
         try:
-            return clean_text(extract_text(row["raw_path"]))
+            text = clean_text(extract_text(row["raw_path"], notes))
         except ParseError as exc:
-            errors.append(f"{row['doc_id']}: {exc}")   # 한 파일 때문에 전체 처리가 멈추지 않게 한다
+            stats.parse_errors.append(f"{row['doc_id']}: {exc}")   # 한 파일 때문에 전체 처리가 멈추지 않게 한다
+            return ""
+        stats.parse_warnings += [f"{row['doc_id']}: {note}" for note in notes]
+        return text
     return ""
 
 
@@ -83,7 +93,7 @@ def prepare(
         if stats.total % PROGRESS_EVERY == 0:
             progress(f"      {stats.total:,}건 처리 ({elapsed()})")
         doc_type = DocType(row["doc_type"])
-        text = _document_text(row, stats.parse_errors)
+        text = _document_text(row, stats)
         if quality_config is None:
             decision = quality.QualityDecision(excluded=False)
         else:

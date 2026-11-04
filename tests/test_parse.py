@@ -93,3 +93,18 @@ def test_extract_text_rejects_hwpx_without_sections(tmp_path):
     (tmp_path / "broken.hwpx").write_bytes(b"PK not really")
     with pytest.raises(ParseError):
         extract_text(str(tmp_path / "broken.hwpx"))
+
+
+def test_extract_text_records_mupdf_repairs_as_warnings_without_printing(tmp_path, capfd):
+    pdf = pymupdf.open()
+    pdf.new_page().insert_text((72, 72), "body")
+    data = pdf.tobytes()
+    at = data.find(b"/Type/Pages")
+    path = tmp_path / "repaired.pdf"
+    path.write_bytes(data[:at] + b"7 " + data[at:])     # 사전에 이름이 아닌 키 → MuPDF 가 복구하며 오류 메시지
+
+    warnings: list[str] = []
+    extract_text(str(path), warnings)
+
+    assert len(warnings) == 1 and "invalid key in dict" in warnings[0]
+    assert "MuPDF error" not in capfd.readouterr().err

@@ -110,3 +110,20 @@ def test_prepare_reads_press_release_pdf_and_survives_broken_file(tmp_path):
     assert "원본 파싱 실패: 1" in stats.summary()
     with open_db(db, read_only=True) as conn:
         assert "정책자금 지원 확대" in get_document(conn, "p1")["clean_text"]
+
+
+def test_prepare_uses_collected_empty_body_instead_of_reparsing_html(tmp_path):
+    html = tmp_path / "notice.html"
+    html.write_text("<html><body><img src='poster.png'></body></html>", encoding="utf-8")
+    notice = DocumentRecord(doc_id="s1", doc_type=DocType.ANNOUNCEMENT, source="서울특별시", title="포스터 공지",
+                            url="https://news.seoul.go.kr/economy/archives/1", collected_at="2026-11-03",
+                            collect_method=CollectMethod.CRAWL, published_at="2025-04-01",
+                            raw_path=str(html), raw_text="")
+    quality = QualityConfig(name="t", period_start=date(2024, 10, 16),
+                            min_chars={DocType.NEWS: 100, DocType.ANNOUNCEMENT: 100},
+                            lead_chars=300, topic_terms=("소상공인",))
+    with open_db(tmp_path / "docs.db") as conn:
+        upsert_documents(conn, [notice])
+        stats = prepare(conn, quality, DEDUP)
+
+    assert stats.parse_errors == [] and stats.excluded_reasons == {"too_short": 1}

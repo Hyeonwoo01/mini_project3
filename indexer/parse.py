@@ -46,12 +46,18 @@ class ParseError(Exception):
     """원본 파일을 열 수 없거나 지원하지 않는 형식."""
 
 
-def extract_text(raw_path: str) -> str:
+# MuPDF 는 고칠 수 있는 PDF 구조 오류(예: 'syntax error: invalid key in dict')도 표준 오류에 바로 출력한다.
+# 출력은 끄고 경고 기록으로 모아서, 호출한 쪽이 문서 단위로 보고하게 한다.
+pymupdf.TOOLS.mupdf_display_errors(False)
+
+
+def extract_text(raw_path: str, warnings: list[str] | None = None) -> str:
     """직접 수집한 원본 파일에서 본문을 추출한다. raw_path 는 프로젝트 루트 기준 상대 경로도 받는다.
 
     PDF (정책브리핑 보도자료 원문): 쪽마다 읽는 순서대로 텍스트를 뽑고 쪽 번호만 있는 줄을 뺀다.
     표는 셀 글자가 줄 단위로 나온다. 스캔 이미지 PDF 는 글자가 거의 없어 품질 필터에서 제외된다.
     HWPX (PDF 가 없는 보도자료): 구역(section) 순서대로 문단마다 한 줄. 표 안의 문단도 각각 한 줄이 된다.
+    warnings 를 넘기면 MuPDF 가 복구하며 남긴 메시지를 추가한다 (텍스트는 정상 반환).
     """
     path = Path(raw_path)
     if not path.is_absolute():
@@ -61,11 +67,14 @@ def extract_text(raw_path: str) -> str:
         return _hwpx_text(path, raw_path)
     if suffix != ".pdf":
         raise ParseError(f"지원하지 않는 원본 형식입니다: {raw_path}")
+    pymupdf.TOOLS.reset_mupdf_warnings()
     try:
         with pymupdf.open(path) as doc:
             pages = [page.get_text("text", sort=True) for page in doc]
     except (pymupdf.FileDataError, FileNotFoundError, RuntimeError) as exc:
         raise ParseError(f"PDF 를 열 수 없습니다: {raw_path} ({exc})") from exc
+    if warnings is not None and (messages := pymupdf.TOOLS.mupdf_warnings().strip()):
+        warnings.append(" / ".join(dict.fromkeys(messages.splitlines())))
     lines = [line for page in pages for line in page.splitlines() if not _PAGE_NUMBER_LINE.match(line)]
     return "\n".join(lines)
 
