@@ -4,6 +4,7 @@
     python -m eval.find_docs 지역화폐 예산 삭감 --year 2022
     python -m eval.find_docs 골목상권 매출 --scope seoul --limit 30
     python -m eval.find_docs --doc news_20251216_1a2b3c4d     # 문서 전문 확인
+    python -m eval.find_docs --doc kr_A kr_B seoul_C           # 여러 문서 전문 → data/doc_texts.md
     python -m eval.find_docs --batch data/question_drafts.txt  # 문항 후보별 검색 결과를 파일로
     python -m eval.find_docs 부담경감 크레딧 --doc-type press_release announcement  # 1차 자료만
 
@@ -111,6 +112,15 @@ def show_document(conn: sqlite3.Connection, doc_id: str) -> str:
 
 BATCH_LIMIT = 8
 DEFAULT_BATCH_OUT = PROJECT_ROOT / "data" / "eval_candidates.md"
+DEFAULT_DOCS_OUT = PROJECT_ROOT / "data" / "doc_texts.md"   # 여러 문서 전문 (기사·보도자료 본문이라 git 에 올리지 않는다)
+
+
+def write_documents(conn: sqlite3.Connection, doc_ids: list[str], out_path: Path) -> None:
+    sections = [f"# 문서 전문 {len(doc_ids)}건", ""]
+    for doc_id in doc_ids:
+        sections += [f"## {doc_id}", "", show_document(conn, doc_id), ""]
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text("\n".join(sections), encoding="utf-8")
 
 
 def parse_batch_line(line: str) -> tuple[str, str, list[str]] | None:
@@ -152,7 +162,8 @@ def run_batch(conn: sqlite3.Connection, batch_path: Path, out_path: Path, limit:
 def main() -> None:
     parser = argparse.ArgumentParser(prog="python -m eval.find_docs", description="평가셋 정답 문서 검색")
     parser.add_argument("terms", nargs="*", help="검색어 (모두 포함)")
-    parser.add_argument("--doc", help="이 doc_id 의 전문을 출력")
+    parser.add_argument("--doc", nargs="+", metavar="DOC_ID",
+                        help="이 doc_id 의 전문을 출력 (여러 개면 data/doc_texts.md 에 저장)")
     parser.add_argument("--batch", type=Path, help="'id | 질문 | 검색어' 파일의 문항 후보를 한꺼번에 검색")
     parser.add_argument("--out", type=Path, default=DEFAULT_BATCH_OUT, help="--batch 결과 파일")
     parser.add_argument("--scope", choices=["seoul", "national"], help="뉴스 범위")
@@ -169,7 +180,11 @@ def main() -> None:
     try:
         with open_db(read_only=True) as conn:
             if args.doc:
-                print(show_document(conn, args.doc))
+                if len(args.doc) == 1:
+                    print(show_document(conn, args.doc[0]))
+                else:
+                    write_documents(conn, args.doc, DEFAULT_DOCS_OUT)
+                    print(f"저장: {DEFAULT_DOCS_OUT} ({len(args.doc)}건)")
                 return
             if args.batch:
                 try:

@@ -94,3 +94,14 @@ def test_search_filters_by_doc_type(tmp_path):
                                         _processed("kr", "kept", "부담경감 크레딧 50만원 한도", scope=None)])
         assert [d.doc_id for d in search(c, ["부담경감"])] == ["n", "kr"]
         assert [d.doc_id for d in search(c, ["부담경감"], doc_types=["press_release"])] == ["kr"]
+
+
+def test_write_documents_saves_full_texts(conn, tmp_path):
+    from eval.find_docs import write_documents
+
+    out = tmp_path / "doc_texts.md"
+    write_documents(conn, ["a", "zzz"], out)
+    text = out.read_text(encoding="utf-8")
+    assert text.startswith("# 문서 전문 2건")
+    assert "## a" in text and "3916억원을 지급했다" in text
+    assert "문서가 없습니다: zzz" in text

@@ -21,6 +21,7 @@ data/raw/*
 data/eval_candidates.md
 data/question_drafts.txt
 data/pool_candidates.md
+data/doc_texts.md
 # 제공 CSV 는 어느 위치에 두어도 커밋되지 않게 한다 (GitHub 파일당 100MB 제한, 재배포 금지 문구 포함)
 *_묶음_*건_*.csv
 *_키워드_*건_*.csv
