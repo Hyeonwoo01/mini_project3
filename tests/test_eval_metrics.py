@@ -91,7 +91,7 @@ class _FakeRetriever:
     def __init__(self, results):
         self.results = results
 
-    def retrieve(self, query, *, k):
+    def retrieve(self, query, *, k, filters=None):
         from rag.retriever import RetrievedChunk
         return [RetrievedChunk(chunk_id=f"{d}#000", doc_id=d, text="", score=s, metadata={"title": d})
                 for d, s in self.results[query][:k]]
@@ -154,7 +154,7 @@ class _FakeChain:
     def __init__(self, results):
         self.results = results
 
-    def answer(self, question):
+    def answer(self, question, *, filters=None):
         return self.results[question]
 
 
@@ -206,7 +206,7 @@ def test_top_score_is_highest_similarity_regardless_of_rank():
     from rag.retriever import RetrievedChunk
 
     class _Unsorted:  # 하이브리드 검색은 1위가 최고 유사도가 아닐 수 있다
-        def retrieve(self, query, *, k):
+        def retrieve(self, query, *, k, filters=None):
             return [RetrievedChunk("a#000", "a", "", 0.55, {"title": "a", "keyword_rank": 1, "vector_rank": None}),
                     RetrievedChunk("b#000", "b", "", 0.71, {"title": "b", "keyword_rank": None, "vector_rank": 1})]
 
@@ -227,3 +227,28 @@ def test_rescore_records_uses_current_gold_without_searching():
     assert rescored["gold_doc_ids"] == ["a", "x"] and rescored["retrieved"] == records[0]["retrieved"]
     with pytest.raises(ValueError, match="u001"):
         rescore_records(records, items + [EvalItem("u001", "q", "unanswerable", (), "거절")], k=5)
+
+
+def test_doc_type_filter_reaches_retriever_and_chain():
+    from eval.run_eval import EvalItem, evaluate_answers, evaluate_retrieval
+    from common.schema import DocType
+    from rag.retriever import SearchFilters
+
+    seen = []
+
+    class _Recorder:
+        def retrieve(self, query, *, k, filters=None):
+            seen.append(("retrieve", filters))
+            return []
+
+        def answer(self, question, *, filters=None):
+            seen.append(("answer", filters))
+            raise StopIteration  # 필터 전달만 확인한다
+
+    news_only = SearchFilters(doc_types=(DocType.NEWS,))
+    item = EvalItem(id="f001", q="질문", type="fact", gold_doc_ids=("a",), answer_key="답")
+    evaluate_retrieval([item], _Recorder(), k=3, filters=news_only)
+    with pytest.raises(StopIteration):
+        evaluate_answers([item], _Recorder(), filters=news_only)
+    assert seen == [("retrieve", news_only), ("answer", news_only)]
+    assert news_only.to_where() == {"doc_type": {"$in": ["news"]}}

@@ -40,8 +40,9 @@ from typing import Any, Protocol
 
 from common.config import PROJECT_ROOT, RETRIEVAL_MODES, get_settings
 from common.docstore import open_db
+from common.schema import DocType
 from rag.chain import RagChain, RagResult, get_chain
-from rag.retriever import HYBRID_CANDIDATES, RRF_K, RetrievedChunk, Retriever
+from rag.retriever import HYBRID_CANDIDATES, RRF_K, RetrievedChunk, Retriever, SearchFilters
 
 QUESTION_TYPES = ("fact", "comparison", "temporal", "synthesis", "unanswerable")
 
@@ -147,18 +148,19 @@ def check_eval_set(path: Path) -> list[str]:
 
 
 class SupportsRetrieve(Protocol):
-    def retrieve(self, query: str, *, k: int) -> list[RetrievedChunk]: ...
+    def retrieve(self, query: str, *, k: int, filters: SearchFilters | None = None) -> list[RetrievedChunk]: ...
 
 
 FUSION_FIELDS = ("vector_rank", "keyword_rank", "rrf_score")
 
 
-def evaluate_retrieval(items: Sequence[EvalItem], retriever: SupportsRetrieve, k: int) -> list[dict[str, Any]]:
+def evaluate_retrieval(items: Sequence[EvalItem], retriever: SupportsRetrieve, k: int,
+                       filters: SearchFilters | None = None) -> list[dict[str, Any]]:
     """문항별 검색 결과와 지표. 답변 불가 문항은 검색 지표 없이 최고 유사도만 기록한다."""
     records = []
     for item in items:
         started = time.perf_counter()
-        chunks = retriever.retrieve(item.q, k=k)
+        chunks = retriever.retrieve(item.q, k=k, filters=filters)
         latency_ms = (time.perf_counter() - started) * 1000
         ranked = [c.doc_id for c in chunks]
         record: dict[str, Any] = {
@@ -259,7 +261,7 @@ def summarize(records: Sequence[dict[str, Any]], k: int) -> dict[str, Any]:
 
 
 class SupportsAnswer(Protocol):
-    def answer(self, question: str) -> RagResult: ...
+    def answer(self, question: str, *, filters: SearchFilters | None = None) -> RagResult: ...
 
 
 ANSWER_COLUMNS = ["id", "type", "q", "answer_key", "answer", "refused", "retrieval_refused", "cited", "sources",
@@ -272,11 +274,11 @@ def _chunk_count(chunk: RetrievedChunk) -> str:
 
 
 def evaluate_answers(items: Sequence[EvalItem], chain: SupportsAnswer,
-                     progress=lambda message: None) -> list[dict[str, Any]]:
+                     progress=lambda message: None, filters: SearchFilters | None = None) -> list[dict[str, Any]]:
     """문항별 답변. grade·citation_ok 는 비워 두고 직접 채점한다."""
     rows = []
     for number, item in enumerate(items, start=1):
-        result = chain.answer(item.q)
+        result = chain.answer(item.q, filters=filters)
         status = "거절" if result.refused else f"인용 {len(result.cited)}건"
         progress(f"  [{number}/{len(items)}] {item.id} {result.latency_ms / 1000:.1f}초 · {status}")
         cited_docs = {result.chunks[n - 1].doc_id for n in result.cited}
@@ -409,6 +411,8 @@ def main() -> None:
     parser.add_argument("--context-chunks", type=int, choices=(1, 2, 3),
                         help="답변 근거로 넣는 문서당 청크 수 (기본: RAG_CONTEXT_CHUNKS)")
     parser.add_argument("--rescore", type=Path, help="저장된 검색 결과(eval/results/...)를 현재 정답 목록으로 다시 채점")
+    parser.add_argument("--doc-types", nargs="+", choices=[t.value for t in DocType], metavar="TYPE",
+                        help="이 문서 종류만 검색한다 (예: news). 같은 컬렉션에서 1차 자료를 뺀 비교 실험에 쓴다")
     args = parser.parse_args()
     settings = get_settings()
     if args.check:
@@ -431,7 +435,10 @@ def main() -> None:
     except RuntimeError as exc:
         raise SystemExit(str(exc)) from exc
 
-    records = evaluate_retrieval(items, retriever, args.k)
+    filters = SearchFilters(doc_types=tuple(DocType(t) for t in args.doc_types)) if args.doc_types else None
+    if filters:
+        print(f"검색 대상 문서 종류: {', '.join(args.doc_types)}")
+    records = evaluate_retrieval(items, retriever, args.k, filters)
     summary = summarize(records, args.k)
     answer_rows: list[dict[str, Any]] = []
     chain: RagChain | None = None
@@ -441,11 +448,13 @@ def main() -> None:
         except RuntimeError as exc:
             raise SystemExit(str(exc)) from exc
         print(f"답변 생성 중: {len(items)}문항 (문항당 수 초)")
-        answer_rows = evaluate_answers(items, chain, progress=lambda message: print(message, flush=True))
+        answer_rows = evaluate_answers(items, chain, progress=lambda message: print(message, flush=True),
+                                       filters=filters)
         summary["answers"] = summarize_answers(answer_rows)
     config = {
         "tag": args.tag, "collection": collection, "k": args.k, "mode": mode,
         "hybrid": {"candidates": HYBRID_CANDIDATES, "rrf_k": RRF_K} if mode == "hybrid" else None,
+        "doc_types": list(args.doc_types) if args.doc_types else None,
         "max_chunks_per_doc": retriever.max_chunks_per_doc, "collapse_same_title": retriever.collapse_same_title,
         "collection_metadata": retriever.collection_metadata,
         "eval_set_items": len(items), "git_commit": _git_commit(),
