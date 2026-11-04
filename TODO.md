@@ -5,9 +5,10 @@
 
 ## 1. 필수 (가이드 최소 요건) — 순서대로
 
-1. **1차 자료 포함 답변 재측정** (검색 재측정·정답 보정 v1.3 은 완료, README 실험 기록 5번)
-   - `run_eval --with-answers --context-chunks 2` → `eval.grade carry`(이전 채점 옮기기) → 바뀐 답변만 채점
-   - PDF 추출 수정(두 쪽 모아찍기, 담당자 연락처 제거) 후 prepare → build → 검색 재측정을 먼저 한다
+1. **답변 평가 변동 폭 측정** (1차 자료 포함 답변 재측정은 완료, README 실험 기록)
+   - 검색 결과가 같은데 답변 등급이 바뀐 문항이 2개(t012·c002). 같은 설정으로 2회 더 실행해 문항별 등급이
+     실행마다 얼마나 바뀌는지 잰다 (`run_eval --with-answers` → `eval.grade carry` → 바뀐 답변만 채점)
+   - 변동이 크면 OpenAI `seed` 지정을 검토하고, 비교 실험은 여러 번 실행한 결과로 판단한다
 2. **Streamlit 챗 UI** (`app/chat.py` 는 자리만 있음): 멀티턴, 스트리밍, 번호 출처 목록,
    원문 확인 영역(`get_document`), 기간·출처 종류 필터, 유사도 점수 표시
 3. **평가 결과 시각화** (`app/dashboard.py` 는 자리만 있음, Plotly): 실험별 Hit@k·MRR, 유형별 정답률,
