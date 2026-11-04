@@ -5,11 +5,9 @@
 
 ## 1. 필수 (가이드 최소 요건) — 순서대로
 
-1. **지식베이스 재구축·재측정** (진행 중)
-   - `indexer prepare` → `indexer build --chunk-config c500` → `eval.run_eval --check`
-   - 보도자료를 옮겨 쓴 뉴스가 중복으로 빠지면 그 뉴스를 정답으로 둔 문항이 `--check` 에 걸린다.
-     대표 문서(보도자료)로 정답을 옮기고 평가셋 버전을 올린 뒤 비교 실험을 모두 다시 측정한다
-   - 1차 자료 추가 전후(검색·답변)를 비교해 실험 기록에 남긴다
+1. **1차 자료 포함 답변 재측정** (검색 재측정·정답 보정 v1.3 은 완료, README 실험 기록 5번)
+   - `run_eval --with-answers --context-chunks 2` → `eval.grade carry`(이전 채점 옮기기) → 바뀐 답변만 채점
+   - 미판정 1건: t007 `kr_20250624_17f0a837` 전문 확인 (`eval.find_docs --doc`)
 2. **Streamlit 챗 UI** (`app/chat.py` 는 자리만 있음): 멀티턴, 스트리밍, 번호 출처 목록,
    원문 확인 영역(`get_document`), 기간·출처 종류 필터, 유사도 점수 표시
 3. **평가 결과 시각화** (`app/dashboard.py` 는 자리만 있음, Plotly): 실험별 Hit@k·MRR, 유형별 정답률,
