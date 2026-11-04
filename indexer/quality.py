@@ -203,8 +203,9 @@ class QualityConfig:
 
 
 _V1_RULES = dict(
-    # 보도자료는 PDF 추출 본문 기준. 200자 미만이면 추출 실패(스캔 이미지 등)나 사진 자료로 본다
-    min_chars={DocType.NEWS: 100, DocType.PRESS_RELEASE: 200},
+    # 보도자료는 PDF 추출 본문 기준. 200자 미만이면 추출 실패(스캔 이미지 등)나 사진 자료로 본다.
+    # 서울시 공고는 포스터 이미지만 있는 글이 있어 100자 미만이면 제외한다 (이미지 글자는 읽지 않는다)
+    min_chars={DocType.NEWS: 100, DocType.PRESS_RELEASE: 200, DocType.ANNOUNCEMENT: 100},
     max_chars={DocType.NEWS: 10_000},
     lead_chars=300,
     topic_terms=DEFAULT_TOPIC_TERMS,

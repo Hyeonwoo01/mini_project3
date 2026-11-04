@@ -3,6 +3,7 @@
     python -m collector probe                 # 수집 후보 사이트 접근 확인 (크롤러 작성 전)
     python -m collector provided              # 제공 뉴스 데이터 적재
     python -m collector korea-kr --query ... [--ministry ...]  # 정책브리핑 보도자료 수집
+    python -m collector seoul-economy         # 서울시 경제분야 누리집 소상공인 지원 소식
     python -m collector blog --query ...      # 블로그 검색 API 수집
     python -m collector law --name ...        # 핵심 법령 현행 조문 수집
 """
@@ -36,6 +37,12 @@ def build_parser() -> argparse.ArgumentParser:
     korea_kr.add_argument("--dry-run", action="store_true",
                           help="목록만 넘기며 조건에 맞는 대상을 보여 주고 받지 않는다")
 
+    seoul = sub.add_parser("seoul-economy", help="서울시 경제분야 누리집 소상공인 지원 소식 수집")
+    seoul.add_argument("--list-url", action="append", help="수집할 카테고리 목록 주소 (생략 시 소기업·소상공인 종합지원 새소식)")
+    seoul.add_argument("--start", default="2021-10-16", help="이 날짜 이후 등록된 글만 받는다 (YYYY-MM-DD)")
+    seoul.add_argument("--max-pages", type=int, help="목록별 최대 쪽 수 (생략 시 끝까지)")
+    seoul.add_argument("--dry-run", action="store_true", help="받을 목록만 보여 주고 받지 않는다")
+
     blog = sub.add_parser("blog", help="블로그 검색 API 수집")
     blog.add_argument("--query", action="append", required=True, help="검색어 (반복 지정 가능)")
     blog.add_argument("--max-results", type=int, default=100)
@@ -60,6 +67,10 @@ def main() -> None:
         crawl_korea_kr.run(queries=args.query, max_pages=args.max_pages, ministries=args.ministry,
                            title_keywords=args.title_keyword, start=args.start, end=args.end,
                            count_only=args.count_only, dry_run=args.dry_run)
+    elif args.command == "seoul-economy":
+        from collector import crawl_seoul_economy
+        crawl_seoul_economy.run(list_urls=args.list_url, start=args.start, max_pages=args.max_pages,
+                                dry_run=args.dry_run)
     elif args.command == "blog":
         from collector import crawl_blog
         crawl_blog.run(queries=args.query, max_results=args.max_results)

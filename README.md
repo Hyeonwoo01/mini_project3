@@ -106,7 +106,8 @@ mini_project3/
 │   ├── fetch.py            #   robots.txt·딜레이를 강제하는 공용 요청 모듈
 │   ├── probe.py            #   수집 후보 사이트 접근 확인 (robots.txt·응답·표본 HTML)
 │   ├── load_provided.py    #   제공 데이터 적재 및 선별
-│   ├── crawl_korea_kr.py   #   정책브리핑 보도자료 수집
+│   ├── crawl_korea_kr.py   #   정책브리핑 보도자료 수집 (PDF 원문)
+│   ├── crawl_seoul_economy.py # 서울시 경제분야 누리집 소상공인 지원 소식
 │   ├── crawl_blog.py       #   블로그 검색 API 수집
 │   ├── collect_law.py      #   법령 현행 조문 수집
 │   └── storage.py          #   원본 파일 저장, doc_id 생성
@@ -197,6 +198,13 @@ python -m collector korea-kr --query 소상공인 --ministry 중소벤처기업�
 
 ```bash
 python -m collector korea-kr --query 소상공인 --ministry 중소벤처기업부
+```
+
+서울시 경제분야 누리집의 소기업·소상공인 종합지원 새소식은 본문을 수집 시점에 추출해 저장한다
+(본문 영역 태그가 닫히지 않아 태그 목록 앞에서 잘라야 하는 등 사이트 구조에 맞춘 처리라 수집기가 맡는다).
+
+```bash
+python -m collector seoul-economy
 ```
 
 ```bash
