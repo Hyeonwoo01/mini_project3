@@ -5,6 +5,7 @@
 """
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from html import escape
 from typing import Literal
 
@@ -117,3 +118,71 @@ def empty_state_html(title: str, body: str) -> str:
 
 def footer_html(lines: Sequence[str]) -> str:
     return '<div class="cb-footer">' + "".join(f"<p>{escape(line)}</p>" for line in lines) + "</div>"
+
+
+# ---- 대시보드 ----
+
+GRADE_TONES: dict[str, Tone] = {"정확": "approve", "부분": "elective", "오답": "reject"}
+
+
+@dataclass(frozen=True)
+class StatTile:
+    label: str
+    value: str
+    caption: str = ""
+
+
+def stat_tiles_html(tiles: Sequence[StatTile]) -> str:
+    """지표 타일 묶음 (반응형 격자). 큰 숫자는 비례 숫자, 표 안 숫자만 tabular-nums."""
+    items = "".join(
+        '<div class="cb-tile">'
+        f'<div class="cb-tile__label">{escape(t.label)}</div>'
+        f'<div class="cb-tile__value">{escape(t.value)}</div>'
+        + (f'<div class="cb-tile__caption">{escape(t.caption)}</div>' if t.caption else "")
+        + "</div>"
+        for t in tiles
+    )
+    return f'<div class="cb-tiles">{items}</div>'
+
+
+def hero_html(label: str, value: str, caption: str = "") -> str:
+    """화면당 하나뿐인 대표 숫자."""
+    caption_html = f'<div class="cb-hero__caption">{escape(caption)}</div>' if caption else ""
+    return (f'<div class="cb-hero"><div class="cb-hero__label">{escape(label)}</div>'
+            f'<div class="cb-hero__value">{escape(value)}</div>{caption_html}</div>')
+
+
+def card_header_html(title: str, caption: str = "") -> str:
+    caption_html = f'<div class="cb-card-caption">{escape(caption)}</div>' if caption else ""
+    return f'<div class="cb-card-title">{escape(title)}</div>{caption_html}'
+
+
+def table_html(headers: Sequence[str], rows: Sequence[Sequence[str]], numeric: Sequence[int] = ()) -> str:
+    """디자인 시스템 표. numeric 은 오른쪽 정렬·tabular-nums 로 둘 열 번호."""
+    numeric_set = set(numeric)
+
+    def cell(tag: str, index: int, value: str) -> str:
+        cls = ' class="num"' if index in numeric_set else ""
+        return f"<{tag}{cls}>{escape(value)}</{tag}>"
+
+    head = "".join(cell("th", i, h) for i, h in enumerate(headers))
+    body = "".join("<tr>" + "".join(cell("td", i, v) for i, v in enumerate(row)) + "</tr>" for row in rows)
+    return f'<div class="cb-table-wrap"><table class="cb-table"><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>'
+
+
+def grade_grid_html(rows: Sequence[dict[str, str]], grade_columns: Sequence[str],
+                    trailing_columns: Sequence[str] = ()) -> str:
+    """문항 × 실행 등급 표. 칸마다 등급 배지(색 + 글자). trailing_columns 는 오른쪽에 붙는 숫자 열."""
+    head = "".join(f"<th>{escape(c)}</th>" for c in ("문항", "유형", "질문", *grade_columns))
+    head += "".join(f'<th class="num">{escape(c)}</th>' for c in trailing_columns)
+    body = []
+    for row in rows:
+        grades = "".join(
+            f'<td class="cb-grade">{badge(row.get(c) or "-", GRADE_TONES.get(row.get(c) or "", "neutral"))}</td>'
+            for c in grade_columns
+        )
+        trailing = "".join(f'<td class="num">{escape(str(row.get(c, "")))}</td>' for c in trailing_columns)
+        body.append(f'<tr><td class="num">{escape(row["id"])}</td><td>{escape(row.get("type", ""))}</td>'
+                    f'<td class="cb-q">{escape(row.get("q", ""))}</td>{grades}{trailing}</tr>')
+    return (f'<div class="cb-table-wrap"><table class="cb-table cb-table--grades"><thead><tr>{head}</tr></thead>'
+            f'<tbody>{"".join(body)}</tbody></table></div>')

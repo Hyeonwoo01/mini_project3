@@ -148,3 +148,31 @@ def test_keyword_search_explains_missing_index(tmp_path):
         pass
     with open_db(db, read_only=True) as conn, pytest.raises(RuntimeError, match="indexer prepare"):
         search_keyword_index(conn, ["예산"], limit=5)
+
+
+def test_composition_counts_by_status_and_month(tmp_path):
+    from common.docstore import document_status_counts, kept_documents_by_month, replace_processed_documents
+    from common.schema import ProcessedRecord
+    db = tmp_path / "docs.db"
+    with open_db(db) as conn:
+        upsert_documents(conn, [
+            _record(doc_id="kr_1", published_at="2026-01-15"),
+            _record(doc_id="kr_2", published_at="2026-01-20T10:00:00"),
+            _record(doc_id="kr_3", published_at=None),
+            _record(doc_id="news_1", doc_type=DocType.NEWS, published_at="2025-12-01"),
+            _record(doc_id="news_2", doc_type=DocType.NEWS, published_at="2025-12-01"),
+            _record(doc_id="news_3", doc_type=DocType.NEWS, published_at="2025-12-02"),  # 인덱서 실행 전
+        ])
+        replace_processed_documents(conn, [
+            ProcessedRecord(doc_id="kr_1", status="kept", processed_at="2026-11-03", canonical_doc_id="kr_1"),
+            ProcessedRecord(doc_id="kr_2", status="kept", processed_at="2026-11-03", canonical_doc_id="kr_2"),
+            ProcessedRecord(doc_id="kr_3", status="kept", processed_at="2026-11-03", canonical_doc_id="kr_3"),
+            ProcessedRecord(doc_id="news_1", status="kept", processed_at="2026-11-03", canonical_doc_id="news_1"),
+            ProcessedRecord(doc_id="news_2", status="duplicate", processed_at="2026-11-03", canonical_doc_id="news_1"),
+        ])
+
+    with open_db(db, read_only=True) as conn:
+        assert document_status_counts(conn) == [
+            ("news", None, 1), ("news", "duplicate", 1), ("news", "kept", 1), ("press_release", "kept", 3)]
+        assert kept_documents_by_month(conn) == [
+            ("news", "2025-12", 1), ("press_release", None, 1), ("press_release", "2026-01", 2)]

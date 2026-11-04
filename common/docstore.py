@@ -150,6 +150,34 @@ def iter_documents(conn: sqlite3.Connection) -> Iterator[sqlite3.Row]:
     yield from conn.execute("SELECT * FROM documents ORDER BY doc_id")
 
 
+def document_status_counts(conn: sqlite3.Connection) -> list[tuple[str, str | None, int]]:
+    """(문서 종류, 처리 상태, 건수). 수집 건수와 중복 처리·품질 필터 후 남은 건수를 비교하는 데 쓴다.
+    상태는 kept | duplicate | excluded, 인덱서 실행 전 문서는 None."""
+    rows = conn.execute(
+        """
+        SELECT d.doc_type, p.status, COUNT(*)
+        FROM documents AS d LEFT JOIN processed_documents AS p USING (doc_id)
+        GROUP BY d.doc_type, p.status
+        ORDER BY d.doc_type, p.status
+        """
+    ).fetchall()
+    return [(row[0], row[1], row[2]) for row in rows]
+
+
+def kept_documents_by_month(conn: sqlite3.Connection) -> list[tuple[str, str | None, int]]:
+    """인덱싱 대상(kept) 문서의 (문서 종류, 발행 월 'YYYY-MM', 건수). 발행일 미상은 월이 None."""
+    rows = conn.execute(
+        """
+        SELECT d.doc_type, substr(d.published_at, 1, 7) AS month, COUNT(*)
+        FROM documents AS d JOIN processed_documents AS p USING (doc_id)
+        WHERE p.status = 'kept'
+        GROUP BY d.doc_type, month
+        ORDER BY d.doc_type, month
+        """
+    ).fetchall()
+    return [(row[0], row[1] or None, row[2]) for row in rows]
+
+
 def replace_processed_documents(conn: sqlite3.Connection, records: Iterable[ProcessedRecord]) -> int:
     """processed_documents 를 비우고 다시 채운다. prepare 는 항상 전체를 다시 계산한다.
 

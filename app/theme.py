@@ -113,10 +113,12 @@ header[data-testid="stHeader"]::before {{
 /* decision-option-chip: 필터 칩(st.pills). 선택되면 배경은 그대로, 테두리만 2px Focus Blue */
 button[data-variant="pills"] {{ background: var(--cb-canvas); color: var(--cb-ink); border: 1px solid var(--cb-hairline); }}
 button[data-variant="pills"] p {{ font-size: 14px; letter-spacing: -0.224px; }}
+/* Streamlit 의 선택 스타일이 선택자 우선순위가 더 높아 !important 로 덮는다 */
 button[data-variant="pills"][aria-pressed="true"] {{
-  background: var(--cb-canvas); color: var(--cb-ink); border-color: var(--cb-focus);
+  background: var(--cb-canvas) !important; color: var(--cb-ink) !important; border-color: var(--cb-focus) !important;
   outline: 1px solid var(--cb-focus); outline-offset: -2px;
 }}
+button[data-variant="pills"][aria-pressed="true"] p {{ color: var(--cb-ink) !important; }}
 
 /* decision-option-chip: 예시 질문 */
 .st-key-examples button {{
@@ -209,6 +211,48 @@ button[data-variant="pills"][aria-pressed="true"] {{
 .cb-footer {{ margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--cb-hairline); }}
 .cb-footer p {{ font-size: 12px; line-height: 1.5; letter-spacing: -0.12px; color: var(--cb-muted-48); margin: 0 0 4px; }}
 
+/* ---- 대시보드 ---- */
+/* evaluation-utility-card: 차트·표 카드 */
+[class*="st-key-card-"] {{
+  background: var(--cb-canvas); border: 1px solid var(--cb-hairline); border-radius: 18px; padding: 24px;
+  margin-top: 8px;
+}}
+.cb-card-title {{ font-size: 17px; font-weight: 600; line-height: 1.24; letter-spacing: -0.374px; color: var(--cb-ink); }}
+.cb-card-caption {{ margin-top: 4px; font-size: 14px; line-height: 1.43; letter-spacing: -0.224px; color: var(--cb-muted-48); }}
+/* 대표 숫자 (화면당 하나) */
+.cb-hero {{ padding: 32px 0 16px; }}
+.cb-hero__label {{ font-size: 17px; font-weight: 600; color: var(--cb-muted-80); }}
+.cb-hero__value {{ font-size: 56px; font-weight: 600; line-height: 1.07; letter-spacing: -0.28px; color: var(--cb-ink); margin-top: 8px; }}
+.cb-hero__caption {{ margin-top: 12px; font-size: 14px; color: var(--cb-muted-48); max-width: 880px; }}
+/* 지표 타일 */
+.cb-tiles {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin: 8px 0; }}
+.cb-tile {{ background: var(--cb-canvas); border: 1px solid var(--cb-hairline); border-radius: 18px; padding: 20px 24px; }}
+.cb-tile__label {{ font-size: 14px; font-weight: 600; letter-spacing: -0.224px; color: var(--cb-muted-80); }}
+.cb-tile__value {{ margin-top: 8px; font-size: 34px; font-weight: 600; line-height: 1.1; letter-spacing: -0.374px; color: var(--cb-ink); }}
+.cb-tile__caption {{ margin-top: 8px; font-size: 12px; line-height: 1.4; letter-spacing: -0.12px; color: var(--cb-muted-48); }}
+/* 표 */
+.cb-table-wrap {{ overflow-x: auto; margin-top: 12px; }}
+.cb-table {{ width: 100%; border-collapse: collapse; font-size: 14px; letter-spacing: -0.224px; color: var(--cb-ink); }}
+.cb-table th {{
+  text-align: left; font-weight: 600; color: var(--cb-muted-80); padding: 8px 12px 8px 0;
+  border-bottom: 1px solid var(--cb-hairline); white-space: nowrap;
+}}
+.cb-table td {{ padding: 10px 12px 10px 0; border-bottom: 1px solid var(--cb-divider); vertical-align: top; line-height: 1.43; }}
+.cb-table .num {{ text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }}
+.cb-table th.num {{ text-align: right; }}
+.cb-table--grades td.cb-grade {{ text-align: center; }}
+.cb-table--grades th:nth-child(n+4):not(.num) {{ text-align: center; }}
+.cb-table--grades td.num {{ text-align: left; }}
+.cb-table .cb-q {{ min-width: 240px; }}
+/* segmented control: 보기·비교 전환 (선택 = 흰 바탕 + 2px Focus Blue 테두리) */
+button[data-variant="segmented_control"] {{ background: var(--cb-canvas); color: var(--cb-ink); border-color: var(--cb-hairline); }}
+button[data-variant="segmented_control"] p {{ font-size: 14px; letter-spacing: -0.224px; }}
+button[data-variant="segmented_control"][aria-checked="true"] {{
+  background: var(--cb-canvas) !important; color: var(--cb-ink) !important; border-color: var(--cb-focus) !important;
+  outline: 1px solid var(--cb-focus); outline-offset: -2px; z-index: 1;
+}}
+button[data-variant="segmented_control"][aria-checked="true"] p {{ color: var(--cb-ink) !important; font-weight: 600; }}
+
 /* 휴대폰 폭: 서브 내비게이션이 화면을 많이 가리지 않게 고정을 풀고 설명을 숨긴다 */
 @media (max-width: 640px) {{
   [data-testid="stLayoutWrapper"]:has(> .st-key-subnav) {{ position: static; }}
@@ -219,6 +263,9 @@ button[data-variant="pills"][aria-pressed="true"] {{
   [class*="st-key-src-"] {{ padding: 17px 17px 12px; }}
   .cb-quote {{ padding: 12px 17px; }}
   .cb-doc {{ padding: 20px; }}
+  [class*="st-key-card-"] {{ padding: 17px; }}
+  .cb-hero__value {{ font-size: 40px; }}
+  .cb-tile__value {{ font-size: 28px; }}
 }}
 
 /* st.status · st.expander: 헤어라인 카드 */

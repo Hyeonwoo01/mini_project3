@@ -1,4 +1,4 @@
-"""Streamlit 진입점: streamlit run app/main.py
+"""Streamlit 진입점: python -m streamlit run app/main.py (프로젝트 루트에서)
 
 챗봇과 평가 결과 시각화를 별도 페이지(탭)로 구성한다 (가이드 4-8).
 """

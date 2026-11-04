@@ -140,7 +140,10 @@ mini_project3/
 │   ├── sources.py          #   화면용 순수 로직 (출처 변환, 답변 마크다운 정리, 필터, 하이라이트 위치)
 │   ├── components.py       #   화면 조각 HTML (값은 모두 escape)
 │   ├── theme.py            #   디자인 토큰·전역 CSS
-│   └── dashboard.py
+│   ├── dashboard.py        #   평가 결과 시각화 (요약·검색·답변·거절 임계값·지식베이스)
+│   ├── experiments.py      #   대시보드에 싣는 실험 목록 (eval/results 폴더 이름)
+│   ├── eval_data.py        #   결과 파일 → 표 (eval 패키지는 import 하지 않음)
+│   └── charts.py           #   Plotly 차트
 ├── .streamlit/config.toml  # Streamlit 테마 (디자인 토큰)
 ├── data/                   # 제공 데이터·크롤링 원본 (git 미포함)
 │   ├── provided/
@@ -296,10 +299,11 @@ python -m eval.grade carry eval/results/<이전 실험>/answers.csv eval/results
 python -m eval.run_eval --tag hybrid-c500-ctx2-answers --with-answers --context-chunks 2
 ```
 
-**④ 챗봇** — 인덱싱을 다시 실행하지 않고 단독으로 구동된다. 프로젝트 루트에서 실행해야 `.streamlit/config.toml` 테마가 적용된다
+**④ 챗봇** — 인덱싱을 다시 실행하지 않고 단독으로 구동된다. 프로젝트 루트에서 실행해야 `.streamlit/config.toml` 테마가 적용된다.
+Windows PowerShell 에서 `streamlit` 명령을 찾지 못하면(Scripts 폴더가 PATH 에 없음) `python -m streamlit` 으로 실행한다
 
 ```bash
-streamlit run app/main.py
+python -m streamlit run app/main.py
 ```
 
 | 화면 요소 | 내용 |
@@ -311,6 +315,20 @@ streamlit run app/main.py
 | 검색 범위 | 출처 종류(뉴스·보도자료·서울시 공고), 발행일 범위. 기간을 지정하면 발행일 미상 문서는 빠진다 |
 | 유사도 점수 표시 | 디버깅용: 코사인 유사도, 하이브리드 검색의 의미·키워드 순위 |
 | 근거 없음 | 오류 대신 원인과 다음 행동 안내 (구체적 표현, 범위 넓히기). 검색은 됐지만 LLM 이 거절하면 검색된 문서를 접어서 보여 준다 |
+
+**평가 결과** 페이지 (`app/dashboard.py`): 저장소의 `eval/results` 를 읽는다. 싣는 실험은 `app/experiments.py` 에서 고른다
+(같은 평가셋 버전끼리만 비교하도록 짝을 지정. 새 실험을 올리려면 여기에 추가)
+
+| 보기 | 내용 |
+|---|---|
+| 요약 | 채택 설정의 답변 정답률(32문항 3회 평균)과 검색·출처·거절·응답 시간 지표, 실험별 결정 기록 |
+| 검색 실험 | 비교(청킹·검색 방식·1차 자료)마다 기준 대비 Hit@k·MRR, 유형별 Hit@3, 문항별 검색 시간 |
+| 답변 품질 | 문항 묶음(뉴스·1차 자료·전체)·설정별 정답률과 실행별 변동, 유형별 등급(취약 유형), 문항 × 실행 등급표 (실행 간 변동과 설정 간 차이를 나눠 봄) |
+| 거절 임계값 | 문항별 검색 1위 유사도 분포와 임계값(`RAG_MIN_SCORE`) — 유사도만으로 답변 불가를 가를 수 없는 근거 |
+| 지식베이스 | 문서 종류별 수집 → 중복·품질 제외 → 인덱싱 건수, 발행 월 분포 (원문 DB 가 있는 PC 에서만) |
+
+차트 색은 디자인 시스템 안에서만 쓴다: 비교는 개선안 Action Blue · 기준 회색(값을 막대 끝에 표기), 채점 등급은 정확/부분/오답 = 초록/주황/빨강,
+나머지는 위치로 구분하고 한 색. 차트마다 '표로 보기'로 같은 값을 표로 볼 수 있다.
 
 화면 디자인은 Apple 스타일 디자인 시스템(단일 Action Blue `#0066cc`, Parchment 배경 위 흰 카드와 1px 헤어라인, 그림자 없음, 17px 본문)을 따른다. 시맨틱 색은 배지·안내에만 쓴다. 토큰은 `.streamlit/config.toml` 과 `app/theme.py` 에 있다. 웹폰트(Pretendard)는 jsDelivr 에서 받으며, 못 받으면 기본 글꼴로 보인다.
 
@@ -503,5 +521,5 @@ pytest
 - [ ] 1차 자료 포함 지식베이스 재구축·재측정 (prepare → build → 평가셋 점검 → 재측정)
 - [x] Streamlit 챗 UI (멀티턴·스트리밍·검색 상태·번호 출처 카드·원문 하이라이트·기간/출처 종류 필터·유사도 표시)
 - [ ] 직접 채점, 개선 및 재측정
-- [ ] 평가 결과 시각화
+- [x] 평가 결과 시각화 (요약·검색 실험·답변 품질·거절 임계값·지식베이스, Plotly)
 - [ ] 리포트
