@@ -207,10 +207,13 @@ FUSION_FIELDS = ("vector_rank", "keyword_rank", "rrf_score", "sub_query")
 
 
 def evaluate_retrieval(items: Sequence[EvalItem], retriever: SupportsRetrieve, k: int,
-                       filters: SearchFilters | None = None) -> list[dict[str, Any]]:
+                       filters: SearchFilters | None = None,
+                       progress=lambda message: None) -> list[dict[str, Any]]:
     """문항별 검색 결과와 지표. 답변 불가 문항은 검색 지표 없이 최고 유사도만 기록한다."""
     records = []
-    for item in items:
+    for number, item in enumerate(items, start=1):
+        if number == 1 or number % 10 == 0 or number == len(items):
+            progress(f"  검색 [{number}/{len(items)}]")
         started = time.perf_counter()
         chunks = retriever.retrieve(item.q, k=k, filters=filters)
         latency_ms = (time.perf_counter() - started) * 1000
@@ -516,7 +519,9 @@ def main() -> None:
         except RuntimeError as exc:
             raise SystemExit(str(exc)) from exc
     # 질문 분해는 체인이 감싼 검색기에 있으므로 검색 평가도 그 검색기로 한다 (답변과 같은 하위 질의, 캐시 공유)
-    records = evaluate_retrieval(items, chain.retriever if args.decompose else retriever, args.k, filters)
+    print(f"검색 평가 중: {len(items)}문항" + (" (질문 분해: 비교 질문은 LLM 호출 포함)" if args.decompose else ""))
+    records = evaluate_retrieval(items, chain.retriever if args.decompose else retriever, args.k, filters,
+                                 progress=lambda message: print(message, flush=True))
     summary = summarize(records, args.k)
     answer_rows: list[dict[str, Any]] = []
     if args.with_answers:
