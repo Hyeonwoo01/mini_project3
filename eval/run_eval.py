@@ -42,6 +42,7 @@ from common.config import PROJECT_ROOT, RETRIEVAL_MODES, get_settings
 from common.docstore import open_db
 from common.schema import DocType
 from rag.chain import RagChain, RagResult, get_chain
+from rag.prompts import DEFAULT_PROMPT_VERSION, PROMPT_VERSIONS
 from rag.retriever import HYBRID_CANDIDATES, RRF_K, RetrievedChunk, Retriever, SearchFilters
 
 QUESTION_TYPES = ("fact", "comparison", "temporal", "synthesis", "unanswerable")
@@ -412,6 +413,9 @@ def main() -> None:
     parser.add_argument("--with-answers", action="store_true", help="답변 생성 및 채점용 CSV 출력")
     parser.add_argument("--context-chunks", type=int, choices=(1, 2, 3),
                         help="답변 근거로 넣는 문서당 청크 수 (기본: RAG_CONTEXT_CHUNKS)")
+    parser.add_argument("--prompt-version", choices=PROMPT_VERSIONS,
+                        help=f"답변 생성 시스템 프롬프트 버전 (기본: {DEFAULT_PROMPT_VERSION}, rag/prompts.py)")
+    parser.add_argument("--seed", type=int, help="LLM seed (OpenAI 재현성 옵션, 반복 실행 변동 확인용)")
     parser.add_argument("--rescore", type=Path, help="저장된 검색 결과(eval/results/...)를 현재 정답 목록으로 다시 채점")
     parser.add_argument("--ids", nargs="+", metavar="ID",
                         help="이 문항만 평가한다 (예: f021 t013). 일부 문항의 반복 실행 비교에 쓴다")
@@ -428,6 +432,8 @@ def main() -> None:
         return
     if args.k < 3:
         parser.error("--k 는 3 이상이어야 합니다 (Hit@3 계산)")
+    if (args.prompt_version or args.seed is not None) and not args.with_answers:
+        parser.error("--prompt-version, --seed 는 --with-answers 와 함께 쓴다 (답변 생성 설정)")
 
     items = load_eval_set(settings.eval_set_path)
     if not items:
@@ -454,7 +460,7 @@ def main() -> None:
     chain: RagChain | None = None
     if args.with_answers:
         try:
-            chain = get_chain(collection, mode, args.context_chunks)
+            chain = get_chain(collection, mode, args.context_chunks, args.prompt_version, args.seed)
         except RuntimeError as exc:
             raise SystemExit(str(exc)) from exc
         print(f"답변 생성 중: {len(items)}문항 (문항당 수 초)")
@@ -469,7 +475,8 @@ def main() -> None:
         "collection_metadata": retriever.collection_metadata,
         "eval_set_items": len(items), "ids": list(args.ids) if args.ids else None, "git_commit": _git_commit(),
         "chain": {"top_k": chain.config.top_k, "min_score": chain.config.min_score,
-                  "context_chunks": chain.config.context_chunks, "chat_model": settings.chat_model} if chain else None,
+                  "context_chunks": chain.config.context_chunks, "chat_model": settings.chat_model,
+                  "prompt_version": chain.config.prompt_version, "seed": args.seed} if chain else None,
         "evaluated_at": datetime.now().isoformat(timespec="seconds"),
     }
     out = save_results(records, summary, config, args.tag, settings.eval_results_dir)

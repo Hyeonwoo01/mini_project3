@@ -31,7 +31,7 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_openai import ChatOpenAI
 
 from common.config import get_settings, require_env
-from rag.prompts import REFUSAL_MESSAGE, SYSTEM_PROMPT, USER_PROMPT_TEMPLATE
+from rag.prompts import DEFAULT_PROMPT_VERSION, REFUSAL_MESSAGE, SYSTEM_PROMPTS, USER_PROMPT_TEMPLATE
 from rag.retriever import RetrievedChunk, Retriever, SearchFilters
 
 # (role, content) — role 은 "user" 또는 "assistant"
@@ -46,10 +46,13 @@ class ChainConfig:
     top_k: int = 5
     min_score: float = 0.5
     context_chunks: int = 1   # 임계값을 통과한 문서마다 근거로 넣는 청크 수 (서비스 기본값은 설정 RAG_CONTEXT_CHUNKS)
+    prompt_version: str = DEFAULT_PROMPT_VERSION   # rag.prompts.SYSTEM_PROMPTS 의 키
 
     def __post_init__(self) -> None:
         if self.top_k < 1 or not 0.0 <= self.min_score < 1.0 or not 1 <= self.context_chunks <= 3:
             raise ValueError(f"잘못된 체인 설정: {self}")
+        if self.prompt_version not in SYSTEM_PROMPTS:
+            raise ValueError(f"알 수 없는 프롬프트 버전: {self.prompt_version!r} (가능: {', '.join(SYSTEM_PROMPTS)})")
 
 
 @dataclass(frozen=True)
@@ -111,7 +114,7 @@ class RagChain:
         self.retriever = retriever
         self.config = config
         prompt = ChatPromptTemplate.from_messages([
-            ("system", SYSTEM_PROMPT),
+            ("system", SYSTEM_PROMPTS[config.prompt_version]),
             MessagesPlaceholder("history"),
             ("human", USER_PROMPT_TEMPLATE),
         ])
@@ -157,22 +160,27 @@ class RagChain:
         )
 
 
-def get_chat_model() -> BaseChatModel:
+def get_chat_model(seed: int | None = None) -> BaseChatModel:
     require_env("OPENAI_API_KEY")
     # 근거 문서에 충실하도록 temperature 0. 공용 키라 응답 지연·호출 한도에 대비해 제한 시간과 재시도를 둔다.
-    return ChatOpenAI(model=get_settings().chat_model, temperature=0, timeout=60, max_retries=3)
+    # seed: OpenAI 의 재현성 옵션 (같은 입력이면 같은 출력을 '최대한' 낸다, 보장은 아님). 반복 실행 변동 확인용.
+    return ChatOpenAI(model=get_settings().chat_model, temperature=0, timeout=60, max_retries=3, seed=seed)
 
 
 @lru_cache(maxsize=4)
-def get_chain(collection: str | None = None, mode: str | None = None, context_chunks: int | None = None) -> RagChain:
+def get_chain(collection: str | None = None, mode: str | None = None, context_chunks: int | None = None,
+              prompt_version: str | None = None, seed: int | None = None) -> RagChain:
     """설정(CHROMA_COLLECTION, RAG_RETRIEVAL_MODE, RAG_TOP_K, RAG_MIN_SCORE, RAG_CONTEXT_CHUNKS)을 쓰는 체인.
-    챗봇·평가 하네스가 공유한다. 인자를 주면 그 값이 설정보다 우선한다 (평가 실험용)."""
+    챗봇·평가 하네스가 공유한다. 인자를 주면 그 값이 설정보다 우선한다 (평가 실험용).
+    프롬프트 버전은 설정이 아닌 코드(rag.prompts.DEFAULT_PROMPT_VERSION)로 관리한다."""
     settings = get_settings()
+    config = ChainConfig(top_k=settings.rag_top_k, min_score=settings.rag_min_score,
+                         context_chunks=context_chunks or settings.rag_context_chunks,
+                         prompt_version=prompt_version or DEFAULT_PROMPT_VERSION)
     return RagChain(
         retriever=Retriever(collection or settings.chroma_collection, mode=mode or settings.rag_retrieval_mode),
-        llm=get_chat_model(),
-        config=ChainConfig(top_k=settings.rag_top_k, min_score=settings.rag_min_score,
-                           context_chunks=context_chunks or settings.rag_context_chunks),
+        llm=get_chat_model(seed),
+        config=config,
     )
 
 

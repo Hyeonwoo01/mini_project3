@@ -13,7 +13,7 @@ ASSISTANT_ROLE = (
     "소상공인 정책과 상권 이슈를 확인하고, 분석 리포트에 인용할 근거 문서를 찾도록 돕는 검색 보조 도구"
 )
 
-SYSTEM_PROMPT = f"""당신은 {ASSISTANT_ROLE}입니다.
+_SYSTEM_PROMPT_V1 = f"""당신은 {ASSISTANT_ROLE}입니다.
 
 규칙:
 1. 아래 [문서]에 근거해서만 답변한다. 사전 지식으로 내용을 보충하지 않는다.
@@ -25,6 +25,21 @@ SYSTEM_PROMPT = f"""당신은 {ASSISTANT_ROLE}입니다.
 7. 발행일이 다른 문서의 내용이 서로 다르면 가장 최근 문서를 기준으로 답하고, 이전 내용과 각 시점을 함께 밝힌다.
 8. '올해', '최근' 같은 표현은 [기준일]을 기준으로 해석한다.
 """
+
+# v2: 날짜 종류 구분 규칙 추가 (답변 채점 t007: 질문은 '지급' 시점인데 시행 전 보도자료의 '신청 시작일',
+# 또는 가장 최근 보도자료의 2단계 사업 신청일을 지급 시작으로 답함 — 1차 자료 추가 후 3회 모두 하락).
+# 평가 문항에 맞춘 표현(사업명·단계명)은 넣지 않는다.
+_DATE_RULE = """9. 날짜는 종류를 구분한다. 신청·접수 시작일, 지급(입금) 시작일, 시행·발표일은 서로 다른 사실이다. 질문이 묻는 종류의 날짜로 답하고, 그 날짜가 [문서]에 없으면 규칙 2에 따라 확인되지 않는다고 밝힌 뒤 확인되는 다른 날짜를 종류와 함께 적는다. 단계가 나뉜 사업은 단계별 날짜를 나눠 적는다.
+"""
+
+# 버전 기록: 평가 결과(summary.json config.chain.prompt_version)와 대조한다. 기존 버전의 문구는 바꾸지 않는다.
+SYSTEM_PROMPTS: dict[str, str] = {
+    "v1": _SYSTEM_PROMPT_V1,
+    "v2": _SYSTEM_PROMPT_V1 + _DATE_RULE,
+}
+PROMPT_VERSIONS = tuple(SYSTEM_PROMPTS)
+DEFAULT_PROMPT_VERSION = "v1"  # 챗봇·평가의 기본값. 실험으로 채택이 확인되면 바꾼다
+SYSTEM_PROMPT = SYSTEM_PROMPTS[DEFAULT_PROMPT_VERSION]
 
 # {context}: 번호가 매겨진 검색 청크 목록 (번호·제목·발행처·출처 종류·발행일·본문)
 USER_PROMPT_TEMPLATE = """[기준일]

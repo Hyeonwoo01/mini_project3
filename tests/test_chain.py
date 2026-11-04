@@ -125,3 +125,38 @@ def test_context_chunks_default_does_not_expand():
     retriever = ExpandingRetriever([_chunk("a", 0.7)])
     RagChain(retriever, FakeListChatModel(responses=["답 [1]"]), ChainConfig(top_k=5, min_score=0.5)).answer("질문")
     assert retriever.expanded == []
+
+
+def test_v1_prompt_text_is_frozen():
+    """기존 실험과 비교할 기준 프롬프트(v1)는 바뀌면 안 된다. 바꾸려면 새 버전을 추가한다."""
+    import hashlib
+
+    from rag.prompts import SYSTEM_PROMPTS
+    digest = hashlib.sha256(SYSTEM_PROMPTS["v1"].encode()).hexdigest()
+    assert digest == "bd658f928d62d633bd4c9a1e80279f570c66d03e996b5d66d7067822b38706bc"
+
+
+def test_prompt_version_selects_system_prompt():
+    from langchain_core.language_models.fake_chat_models import FakeListChatModel
+
+    from rag.prompts import SYSTEM_PROMPTS
+
+    class RecordingModel(FakeListChatModel):
+        seen: list = []
+
+        def _stream(self, messages, stop=None, run_manager=None, **kwargs):  # answer() 는 스트리밍으로 생성한다
+            type(self).seen.append(messages[0].content)
+            yield from super()._stream(messages, stop=stop, run_manager=run_manager, **kwargs)
+
+    for version in ("v1", "v2"):
+        RecordingModel.seen = []
+        chain = RagChain(FakeRetriever([_chunk("a", 0.7)]), RecordingModel(responses=["답 [1]"]),
+                         ChainConfig(top_k=5, min_score=0.5, prompt_version=version))
+        chain.answer("질문")
+        assert RecordingModel.seen == [SYSTEM_PROMPTS[version]]
+    assert SYSTEM_PROMPTS["v2"].startswith(SYSTEM_PROMPTS["v1"]) and "9. 날짜는 종류를 구분한다" in SYSTEM_PROMPTS["v2"]
+
+
+def test_unknown_prompt_version_is_rejected():
+    with pytest.raises(ValueError, match="프롬프트 버전"):
+        ChainConfig(prompt_version="v9")

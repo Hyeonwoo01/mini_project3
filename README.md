@@ -299,6 +299,14 @@ python -m eval.grade carry eval/results/<이전 실험>/answers.csv eval/results
 python -m eval.run_eval --tag hybrid-c500-ctx2-answers --with-answers --context-chunks 2
 ```
 
+시스템 프롬프트는 `rag/prompts.py` 에 버전(`v1`, `v2` …)으로 둔다. 기존 버전 문구는 바꾸지 않고 새 버전을 추가해
+`--prompt-version` 으로 비교한다 (기본값 `DEFAULT_PROMPT_VERSION`). `--seed` 는 OpenAI 재현성 옵션으로, 반복 실행 변동을
+줄이는지 확인하는 데 쓴다. 두 값은 결과의 `summary.json` → `config.chain` 에 기록된다.
+
+```bash
+python -m eval.run_eval --tag hybrid-c500-ctx2-kb2-p2-r1 --with-answers --context-chunks 2 --prompt-version v2
+```
+
 **④ 챗봇** — 인덱싱을 다시 실행하지 않고 단독으로 구동된다. 프로젝트 루트에서 실행해야 `.streamlit/config.toml` 테마가 적용된다.
 Windows PowerShell 에서 `streamlit` 명령을 찾지 못하면(Scripts 폴더가 PATH 에 없음) `python -m streamlit` 으로 실행한다
 
