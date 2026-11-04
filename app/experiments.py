@@ -28,12 +28,28 @@ class RetrievalComparison:
 
 @dataclass(frozen=True)
 class AnswerSetting:
-    """반복 실행한 답변 설정. 같은 순서의 실행끼리 짝지어 문항 전체(뉴스 문항 + 1차 자료 문항) 정답률을 낸다."""
+    """반복 실행한 답변 설정. repetitions 의 원소 하나가 실행 1회분이고, 그 안의 결과 폴더들이 문항 전체를 함께 덮는다
+    (뉴스 문항·1차 자료 문항을 따로 돌린 실험은 폴더 2개, 평가셋 v2.0 전체를 한 번에 돌린 실험은 폴더 1개)."""
 
     key: str
     label: str
-    news_question_runs: tuple[str, ...]      # 평가셋 v1.3 30문항 (답변 가능 24 + 답변 불가 6)
-    primary_question_runs: tuple[str, ...]   # 평가셋 v2.0 에 추가한 1차 자료 문항 8개
+    short: str                                  # 표 열 이름용 짧은 이름
+    repetitions: tuple[tuple[str, ...], ...]
+
+
+@dataclass(frozen=True)
+class AnswerComparison:
+    """한 가지만 바꾼 답변 설정 한 쌍 (설정 key)."""
+
+    key: str
+    title: str
+    baseline: str
+    candidate: str
+    decision: str
+
+
+# 평가셋 v2.0 에 추가한 1차 자료 문항 (나머지는 뉴스로 만든 문항). 1차 자료 문항 실험의 --ids 와 같다
+PRIMARY_QUESTION_IDS: frozenset[str] = frozenset({"f021", "f023", "f024", "f026", "f027", "t013", "t014", "c005"})
 
 
 RETRIEVAL_COMPARISONS: tuple[RetrievalComparison, ...] = (
@@ -71,31 +87,45 @@ CONTEXT_CHUNK_COMPARISON = (
 
 ANSWER_SETTINGS: tuple[AnswerSetting, ...] = (
     AnswerSetting(
-        key="kb2", label="+ 1차 자료 (채택)",
-        news_question_runs=(
-            "20261104-1040_hybrid-c500-ctx2-kb2-answers",
-            "20261104-1050_hybrid-c500-ctx2-kb2-answers-r2",
-            "20261104-1055_hybrid-c500-ctx2-kb2-answers-r3",
-        ),
-        primary_question_runs=(
-            "20261104-1127_primary8-kb2-ans-r1",
-            "20261104-1128_primary8-kb2-ans-r2",
-            "20261104-1128_primary8-kb2-ans-r3",
+        key="news", label="뉴스만", short="뉴스만",
+        repetitions=(
+            ("20261104-1106_hybrid-c500-ctx2-news-r1", "20261104-1129_primary8-news-ans-r1"),
+            ("20261104-1108_hybrid-c500-ctx2-news-r2", "20261104-1129_primary8-news-ans-r2"),
+            ("20261104-1110_hybrid-c500-ctx2-news-r3", "20261104-1130_primary8-news-ans-r3"),
         ),
     ),
     AnswerSetting(
-        key="news", label="뉴스만",
-        news_question_runs=(
-            "20261104-1106_hybrid-c500-ctx2-news-r1",
-            "20261104-1108_hybrid-c500-ctx2-news-r2",
-            "20261104-1110_hybrid-c500-ctx2-news-r3",
-        ),
-        primary_question_runs=(
-            "20261104-1129_primary8-news-ans-r1",
-            "20261104-1129_primary8-news-ans-r2",
-            "20261104-1130_primary8-news-ans-r3",
+        key="kb2", label="1차 자료 포함 (프롬프트 v1)", short="v1",
+        repetitions=(
+            ("20261104-1040_hybrid-c500-ctx2-kb2-answers", "20261104-1127_primary8-kb2-ans-r1"),
+            ("20261104-1050_hybrid-c500-ctx2-kb2-answers-r2", "20261104-1128_primary8-kb2-ans-r2"),
+            ("20261104-1055_hybrid-c500-ctx2-kb2-answers-r3", "20261104-1128_primary8-kb2-ans-r3"),
         ),
     ),
+    AnswerSetting(
+        key="kb2-p2", label="1차 자료 포함, 프롬프트 v2", short="v2",
+        repetitions=(
+            ("20261104-1436_hybrid-c500-ctx2-kb2-p2-r1",),
+            ("20261104-1438_hybrid-c500-ctx2-kb2-p2-r2",),
+            ("20261104-1440_hybrid-c500-ctx2-kb2-p2-r3",),
+        ),
+    ),
+    AnswerSetting(
+        key="kb2-p2-seed", label="프롬프트 v2 + seed 42", short="v2+seed",
+        repetitions=(
+            ("20261104-1443_hybrid-c500-ctx2-kb2-p2-seed-r1",),
+            ("20261104-1445_hybrid-c500-ctx2-kb2-p2-seed-r2",),
+            ("20261104-1447_hybrid-c500-ctx2-kb2-p2-seed-r3",),
+        ),
+    ),
+)
+ANSWER_COMPARISONS: tuple[AnswerComparison, ...] = (
+    AnswerComparison(key="primary", title="1차 자료 추가", baseline="news", candidate="kb2",
+                     decision="뉴스 문항은 변동 범위 안(t007 제외), 1차 자료 문항에서 크게 앞서 유지"),
+    AnswerComparison(key="prompt", title="프롬프트 v2 (날짜 종류 구분)", baseline="kb2", candidate="kb2-p2",
+                     decision="정답률 같음: t012 개선·t007 일부 개선, f006 잘못된 거절 → 채택하지 않음"),
+    AnswerComparison(key="seed", title="seed 고정", baseline="kb2-p2", candidate="kb2-p2-seed",
+                     decision="실행 간 같은 답변 비율이 그대로 → 변동을 줄이지 못함, 쓰지 않음"),
 )
 ADOPTED_ANSWER_SETTING = "kb2"
 

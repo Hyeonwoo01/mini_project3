@@ -148,13 +148,16 @@ def test_prompt_version_selects_system_prompt():
             type(self).seen.append(messages[0].content)
             yield from super()._stream(messages, stop=stop, run_manager=run_manager, **kwargs)
 
-    for version in ("v1", "v2"):
+    for version in ("v1", "v2", "v3"):
         RecordingModel.seen = []
         chain = RagChain(FakeRetriever([_chunk("a", 0.7)]), RecordingModel(responses=["답 [1]"]),
                          ChainConfig(top_k=5, min_score=0.5, prompt_version=version))
         chain.answer("질문")
         assert RecordingModel.seen == [SYSTEM_PROMPTS[version]]
     assert SYSTEM_PROMPTS["v2"].startswith(SYSTEM_PROMPTS["v1"]) and "9. 날짜는 종류를 구분한다" in SYSTEM_PROMPTS["v2"]
+    v3 = SYSTEM_PROMPTS["v3"]
+    assert v3.startswith(SYSTEM_PROMPTS["v1"]) and "발행일을 기준으로" in v3
+    assert "확인되지 않는다" not in v3[len(SYSTEM_PROMPTS["v1"]):]      # v2 에서 잘못된 거절을 부른 문구는 빼 둔다
 
 
 def test_unknown_prompt_version_is_rejected():

@@ -18,10 +18,12 @@ from app import components as ui
 from app import eval_data as ed
 from app.experiments import (
     ADOPTED_ANSWER_SETTING,
+    ANSWER_COMPARISONS,
     ANSWER_SETTINGS,
     CONTEXT_CHUNK_COMPARISON,
     RETRIEVAL_COMPARISONS,
     THRESHOLD_RUNS,
+    AnswerComparison,
     AnswerSetting,
     RetrievalComparison,
 )
@@ -47,6 +49,10 @@ def _setting(key: str) -> AnswerSetting:
 
 def _comparison(key: str) -> RetrievalComparison:
     return next(c for c in RETRIEVAL_COMPARISONS if c.key == key)
+
+
+def _answer_comparison(key: str) -> AnswerComparison:
+    return next(c for c in ANSWER_COMPARISONS if c.key == key)
 
 
 def _results_dir() -> Path:
@@ -109,14 +115,14 @@ def render_overview(results_dir: Path) -> None:
     news_scores = ed.mean_scores(ed.setting_summary(news_frames))
     refused_ids = sorted({row.id for frame in answer_frames(root, adopted.key, "all")
                           for row in frame.itertuples() if row.type != "unanswerable" and row.refused})
-    latency = ed.answer_latency(results_dir, adopted.news_question_runs)
+    latency = ed.answer_latency(results_dir, adopted)
     news_retrieval = summary(root, _comparison("primary").candidate.run_id)["overall"]
     primary_retrieval = summary(root, _comparison("primary8").candidate.run_id)["overall"]
 
     st.html(ui.hero_html(
         "답변 정답률",
         _pct(all_scores["accuracy"]),
-        f"채택 설정(하이브리드 검색 + 1차 자료, 문서당 청크 2개) · 답변 가능 32문항 · 3회 평균 "
+        f"채택 설정(하이브리드 검색 + 1차 자료, 문서당 청크 2개, 프롬프트 v1) · 답변 가능 32문항 · 3회 평균 "
         f"(실행별 {_pct(all_scores['accuracy_min'])} ~ {_pct(all_scores['accuracy_max'])}) · "
         f"부분 정답 포함 {_pct(all_scores['accuracy_with_partial'])}",
     ))
@@ -160,12 +166,15 @@ def _decision_rows(results_dir: Path) -> list[list[str]]:
         "같은 기사의 세부 청크가 근거에 들어가 문서당 2개 채택",
     ])
     means = {s.key: ed.mean_scores(ed.setting_summary(answer_frames(root, s.key, "all"))) for s in ANSWER_SETTINGS}
-    rows.append([
-        "답변 · 1차 자료", "v2.0", "뉴스만 → + 1차 자료 (3회 평균, 32문항)",
-        f"정답률 {_pct(means['news']['accuracy'])} → {_pct(means['kb2']['accuracy'])}, "
-        f"부분 포함 {_pct(means['news']['accuracy_with_partial'])} → {_pct(means['kb2']['accuracy_with_partial'])}",
-        "뉴스 문항은 변동 범위 안(t007 제외), 1차 자료 문항에서 크게 앞서 유지",
-    ])
+    for comparison in ANSWER_COMPARISONS:
+        base, cand = means[comparison.baseline], means[comparison.candidate]
+        rows.append([
+            f"답변 · {comparison.title}", "v2.0",
+            f"{_setting(comparison.baseline).label} → {_setting(comparison.candidate).label} (3회 평균, 32문항)",
+            f"정답률 {_pct(base['accuracy'])} → {_pct(cand['accuracy'])}, "
+            f"부분 포함 {_pct(base['accuracy_with_partial'])} → {_pct(cand['accuracy_with_partial'])}",
+            comparison.decision,
+        ])
     return rows
 
 
@@ -214,66 +223,79 @@ def render_retrieval(results_dir: Path) -> None:
 
 # ---- 답변 품질 ----
 
+def _delta(candidate: float | None, baseline: float | None) -> str:
+    if candidate is None or baseline is None:
+        return ""
+    return f"{(candidate - baseline) * 100:+.1f}%p"
+
+
 def render_answers(results_dir: Path) -> None:
     root = str(results_dir)
     with st.container(horizontal=True, gap="medium"):
+        comparison_key = st.segmented_control(
+            "비교", [c.key for c in ANSWER_COMPARISONS], default=ANSWER_COMPARISONS[0].key, required=True,
+            format_func=lambda k: _answer_comparison(k).title, key="answer_comparison")
         question_set = st.segmented_control("문항", list(ed.QUESTION_SETS), default="all", required=True,
                                             format_func=lambda k: ed.QUESTION_SETS[k], key="answer_question_set")
-        setting_key = st.segmented_control("설정", [s.key for s in ANSWER_SETTINGS], default=ADOPTED_ANSWER_SETTING,
-                                           required=True, format_func=lambda k: _setting(k).label, key="answer_setting")
+    comparison = _answer_comparison(comparison_key or ANSWER_COMPARISONS[0].key)
     question_set = question_set or "all"
-    setting = _setting(setting_key or ADOPTED_ANSWER_SETTING)
-    frames = answer_frames(root, setting.key, question_set)
-    run_table = ed.setting_summary(frames)
-    scores = ed.mean_scores(run_table)
-    n = int(run_table["answerable"].iloc[0])
+    baseline, candidate = _setting(comparison.baseline), _setting(comparison.candidate)
+    base_frames = answer_frames(root, baseline.key, question_set)
+    cand_frames = answer_frames(root, candidate.key, question_set)
+    base_table, cand_table = ed.setting_summary(base_frames), ed.setting_summary(cand_frames)
+    base, cand = ed.mean_scores(base_table), ed.mean_scores(cand_table)
+    n = int(cand_table["answerable"].iloc[0])
+    st.caption(f"비교: {baseline.label} → {candidate.label} · 답변 가능 {n}문항 · 각 {len(cand_frames)}회 · "
+               f"결정: {comparison.decision}")
+
+    def tile(label: str, metric: str, note: str) -> ui.StatTile:
+        delta = _delta(cand[metric], base[metric])
+        return ui.StatTile(label, _pct(cand[metric]), f"기준 {_pct(base[metric])} · 차이 {delta} · {note}" if delta else note)
 
     tiles = [
-        ui.StatTile("정답률", _pct(scores["accuracy"]),
-                    f"{len(frames)}회 평균 · 실행별 {_pct(scores['accuracy_min'])} ~ {_pct(scores['accuracy_max'])}"),
-        ui.StatTile("부분 정답 포함", _pct(scores["accuracy_with_partial"]), f"답변 가능 {n}문항"),
-        ui.StatTile("점수", _pct(scores["score"]), "정확 1점 · 부분 0.5점"),
-        ui.StatTile("출처 정확도", _pct(scores["citation_accuracy"]), "답한 문항 중 근거 번호가 맞은 비율"),
-        ui.StatTile("잘못된 거절", _pct(scores["false_refusal_rate"]), "답변 가능한데 거절한 비율"),
+        tile("정답률", "accuracy", f"실행별 {_pct(cand['accuracy_min'])} ~ {_pct(cand['accuracy_max'])}"),
+        tile("부분 정답 포함", "accuracy_with_partial", "정확 + 부분"),
+        tile("출처 정확도", "citation_accuracy", "답한 문항 중 근거 번호가 맞은 비율"),
+        tile("잘못된 거절", "false_refusal_rate", "답변 가능한데 거절한 비율"),
     ]
-    if scores["refusal_accuracy"] is not None:
-        tiles.append(ui.StatTile("거절 정확도", _pct(scores["refusal_accuracy"]), "답변 불가 문항을 거절한 비율"))
+    if cand["refusal_accuracy"] is not None:
+        tiles.append(tile("거절 정확도", "refusal_accuracy", "답변 불가 문항을 거절한 비율"))
     st.html(ui.stat_tiles_html(tiles))
 
-    summaries = {s.label: ed.setting_summary(answer_frames(root, s.key, question_set)) for s in ANSWER_SETTINGS}
-    shares = ed.grade_shares_by_type(frames)
+    summaries = {baseline.label: base_table, candidate.label: cand_table}
+    shares = ed.grade_shares_by_type(cand_frames)
     left, right = st.columns(2, gap="medium")
     with left:
         chart_card(
-            "answer-runs", "실행별 정답률", f"점 = 실행 1회, 세로 눈금 = 평균. 고른 설정({setting.label})만 파랑",
-            charts.run_dots(summaries, setting.label), alt="설정별 반복 실행 정답률 점 그래프",
+            "answer-runs", "실행별 정답률", f"점 = 실행 1회, 세로 눈금 = 평균. {baseline.label}(회색) → {candidate.label}(파랑)",
+            charts.run_dots(summaries, candidate.label), alt=f"{comparison.title}: 설정별 반복 실행 정답률 점 그래프",
             table=pd.concat([t.assign(설정=label) for label, t in summaries.items()], ignore_index=True)[
                 ["설정", "실행", "correct", "partial", "wrong", "accuracy", "accuracy_with_partial", "citation_accuracy"]],
         )
     with right:
         chart_card(
-            "answer-types", "유형별 등급", f"{setting.label} · 문항 × {len(frames)}회를 합친 비율. 오답이 많은 유형이 취약 유형",
-            charts.grade_stack(shares), alt=f"{setting.label}: 질문 유형별 정확·부분·오답 비율 누적 막대",
+            "answer-types", "유형별 등급", f"{candidate.label} · 문항 × {len(cand_frames)}회를 합친 비율. 오답이 많은 유형이 취약 유형",
+            charts.grade_stack(shares), alt=f"{candidate.label}: 질문 유형별 정확·부분·오답 비율 누적 막대",
             table=shares.pivot(index=["type", "total"], columns="grade", values="count").reset_index(),
         )
 
-    matrix = ed.grade_matrix({s.label: answer_frames(root, s.key, question_set) for s in ANSWER_SETTINGS})
+    matrix = ed.grade_matrix({candidate.short: cand_frames, baseline.short: base_frames})
     grade_columns = [c for c in matrix.columns if c.endswith("회")]
-    first, second = (s.label for s in ANSWER_SETTINGS)
     gap_column = "점수 차"
     matrix[gap_column] = matrix["score_gap"].map(lambda g: "-" if g != g else ("0" if abs(g) < 1e-9 else f"{g:+.2f}"))
     filters = {
-        "varies": f"실행마다 달라진 문항 {int(matrix['varies'].sum())}개",
         "differs": f"설정 간 점수가 다른 문항 {int(matrix['differs'].sum())}개",
+        "varies": f"실행마다 달라진 문항 {int(matrix['varies'].sum())}개",
         "all": f"모든 문항 {len(matrix)}개",
     }
     with st.container(key="card-answer-grid"):
         st.html(ui.card_header_html(
             "문항별 등급",
-            f"설정 2개 × {len(frames)}회. 점수 차 = {first} 평균 − {second} 평균 (정확 1 · 부분 0.5 · 오답 0)"))
-        choice = st.segmented_control("문항 거르기", list(filters), default="varies", required=True,
+            f"{candidate.short} = {candidate.label}, {baseline.short} = {baseline.label} (각 {len(cand_frames)}회). "
+            f"점수 차 = {candidate.short} 평균 − {baseline.short} 평균 (정확 1 · 부분 0.5 · 오답 0)"))
+        choice = st.segmented_control("문항 거르기", list(filters), default="differs", required=True,
                                       format_func=filters.get, key="answer_grid_filter", label_visibility="collapsed")
-        rows = matrix if choice == "all" else matrix[matrix[choice or "varies"]]
+        rows = matrix if choice == "all" else matrix[matrix[choice or "differs"]]
         st.html(ui.grade_grid_html(rows.to_dict("records"), grade_columns, [gap_column]) if len(rows)
                 else ui.callout_html("해당하는 문항이 없습니다", tone="info"))
         if choice != "all" and len(rows):

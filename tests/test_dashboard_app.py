@@ -52,10 +52,20 @@ def test_answer_view_filters_render(fake_db):
     at = AppTest.from_function(_script, default_timeout=30)
     at.session_state["dashboard_view"] = "답변 품질"
     at.session_state["answer_question_set"] = "primary"
-    at.session_state["answer_setting"] = "news"
+    at.session_state["answer_comparison"] = "prompt"
     at.session_state["answer_grid_filter"] = "all"
     at.run()
     assert not at.exception, at.exception
+
+
+@pytest.mark.parametrize("comparison", ["primary", "prompt", "seed"])
+def test_answer_comparisons_render(comparison, fake_db):
+    at = AppTest.from_function(_script, default_timeout=30)
+    at.session_state["dashboard_view"] = "답변 품질"
+    at.session_state["answer_comparison"] = comparison
+    at.run()
+    assert not at.exception, at.exception
+    assert "문항별 등급" in _html(at)
 
 
 def test_knowledge_base_without_db_shows_guidance(monkeypatch):

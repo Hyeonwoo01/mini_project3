@@ -30,8 +30,9 @@ def test_grade_stack_uses_semantic_colors_in_fixed_order():
 
 
 def test_run_dots_separates_identical_runs():
-    summaries = {s.label: ed.setting_summary(ed.setting_frames(RESULTS, s, "news")) for s in ANSWER_SETTINGS}
-    fig = charts.run_dots(summaries, ANSWER_SETTINGS[0].label)
+    settings = ANSWER_SETTINGS[:2]
+    summaries = {s.label: ed.setting_summary(ed.setting_frames(RESULTS, s, "news")) for s in settings}
+    fig = charts.run_dots(summaries, settings[0].label)
     runs = fig.data[0]
     assert len(set(runs.y)) == len(runs.y)          # 같은 값의 실행도 다른 자리에
     assert runs.marker.color == COLORS["primary"] and fig.data[2].marker.color == charts.MUTED

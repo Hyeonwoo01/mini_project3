@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from app.experiments import AnswerSetting, RetrievalComparison, RunRef
+from app.experiments import PRIMARY_QUESTION_IDS, AnswerSetting, RetrievalComparison, RunRef
 
 GRADES = ("정확", "부분", "오답")
 GRADE_SCORE = {"정확": 1.0, "부분": 0.5, "오답": 0.0}
@@ -118,19 +118,21 @@ def threshold_points(results_dir: Path, run_id: str) -> pd.DataFrame:
 # ---- 답변 ----
 
 def setting_frames(results_dir: Path, setting: AnswerSetting, question_set: str) -> list[pd.DataFrame]:
-    """반복 실행별 채점 표. question_set: news | primary | all (같은 순서의 실행끼리 이어 붙임)."""
+    """반복 실행별 채점 표. question_set: news(뉴스 문항) | primary(1차 자료 문항) | all.
+    실행 1회분의 결과 폴더들을 이어 붙인 뒤 문항 묶음으로 거른다."""
     if question_set not in QUESTION_SETS:
         raise ValueError(f"알 수 없는 문항 묶음: {question_set!r}")
-    if len(setting.news_question_runs) != len(setting.primary_question_runs):
-        raise ValueError(f"{setting.key}: 뉴스 문항·1차 자료 문항 반복 횟수가 다릅니다")
     frames = []
-    for news_run, primary_run in zip(setting.news_question_runs, setting.primary_question_runs):
-        parts = []
-        if question_set in ("news", "all"):
-            parts.append(load_answers(results_dir, news_run).assign(question_set="news"))
-        if question_set in ("primary", "all"):
-            parts.append(load_answers(results_dir, primary_run).assign(question_set="primary"))
-        frames.append(pd.concat(parts, ignore_index=True))
+    for run_ids in setting.repetitions:
+        frame = pd.concat([load_answers(results_dir, run_id) for run_id in run_ids], ignore_index=True)
+        duplicated = sorted(set(frame.loc[frame["id"].duplicated(), "id"]))
+        if duplicated:
+            raise ValueError(f"{setting.key}: 한 번의 실행에 같은 문항이 두 번 있습니다 ({', '.join(duplicated)})")
+        is_primary = frame["id"].isin(PRIMARY_QUESTION_IDS)
+        frame = frame.assign(question_set=is_primary.map({True: "primary", False: "news"}))
+        if question_set != "all":
+            frame = frame[frame["question_set"] == question_set].reset_index(drop=True)
+        frames.append(frame)
     return frames
 
 
@@ -231,15 +233,22 @@ def context_comparison_table(results_dir: Path, runs: Sequence[RunRef]) -> pd.Da
     return pd.DataFrame(rows)
 
 
-def answer_latency(results_dir: Path, run_ids: Iterable[str]) -> dict[str, float | None]:
-    """답변 생성까지의 응답 시간 평균·p95 (실행별 값을 평균)."""
-    means, p95s = [], []
-    for run_id in run_ids:
-        latency = load_summary(results_dir, run_id).get("answers", {}).get("latency_ms", {})
-        if latency:
-            means.append(latency["mean"])
-            p95s.append(latency["p95"])
-    return {"mean": sum(means) / len(means) if means else None, "p95": sum(p95s) / len(p95s) if p95s else None}
+def answer_latency(results_dir: Path, setting: AnswerSetting) -> dict[str, float | None]:
+    """답변 생성까지의 응답 시간: 결과 폴더별 평균·p95 를 문항 수로 가중 평균한다 (p95 는 근사)."""
+    total = weighted_mean = weighted_p95 = 0.0
+    for run_ids in setting.repetitions:
+        for run_id in run_ids:
+            summary = load_summary(results_dir, run_id)
+            latency = summary.get("answers", {}).get("latency_ms", {})
+            if not latency:
+                continue
+            n = summary["config"].get("eval_set_items") or 1
+            total += n
+            weighted_mean += latency["mean"] * n
+            weighted_p95 += latency["p95"] * n
+    if not total:
+        return {"mean": None, "p95": None}
+    return {"mean": weighted_mean / total, "p95": weighted_p95 / total}
 
 
 # ---- 지식베이스 구성 (common.docstore 조회 결과 → 표) ----
