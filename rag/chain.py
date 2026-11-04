@@ -39,7 +39,9 @@ from rag.retriever import RetrievedChunk, Retriever, SearchFilters
 ChatHistory = Sequence[tuple[str, str]]
 
 MAX_HISTORY_TURNS = 3
-DEFAULT_DECOMPOSE = False   # 비교 질문 분해 (rag/decompose.py). 실험으로 채택이 확인되면 바꾼다
+# 비교 질문 분해 (rag/decompose.py). v2 채택: 비교 문항 양쪽 근거 포함 all@5 0.40 → 0.60, 정답률 57.3 → 61.5%
+# (README 실험 기록). 비교 표현이 없는 질문은 분해하지 않아 LLM 호출·응답 시간이 그대로다
+DEFAULT_DECOMPOSE = True
 _CITATION = re.compile(r"\[(\d{1,2})\]")
 
 

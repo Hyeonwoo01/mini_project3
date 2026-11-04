@@ -139,5 +139,14 @@ def test_chain_with_decompose_adds_the_missing_side():
 
 def test_chain_without_decompose_keeps_plain_retriever():
     inner = FakeRetriever({})
-    chain = RagChain(inner, FakeListChatModel(responses=["x"]), ChainConfig(top_k=5, min_score=0.5))
+    chain = RagChain(inner, FakeListChatModel(responses=["x"]), ChainConfig(top_k=5, min_score=0.5, decompose=False))
     assert chain.retriever is inner
+
+
+def test_decompose_is_default_and_skips_llm_for_non_comparison_questions():
+    """채택 설정은 분해를 켠다. 비교 표현이 없는 질문은 LLM 을 부르지 않고 원래 검색 결과를 그대로 쓴다."""
+    inner = FakeRetriever({"C 사업 지원 금액은?": [_chunk("c1")]})
+    llm = FakeListChatModel(responses=[])   # 호출되면 응답이 없어 실패한다
+    chain = RagChain(inner, llm, ChainConfig(top_k=5, min_score=0.5))
+    assert isinstance(chain.retriever, DecomposingRetriever)
+    assert [c.doc_id for c in chain.retriever.retrieve("C 사업 지원 금액은?", k=5)] == ["c1"]

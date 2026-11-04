@@ -41,7 +41,7 @@ from typing import Any, Protocol
 from common.config import PROJECT_ROOT, RETRIEVAL_MODES, get_settings
 from common.docstore import open_db
 from common.schema import DocType
-from rag.chain import RagChain, RagResult, get_chain
+from rag.chain import DEFAULT_DECOMPOSE, RagChain, RagResult, get_chain
 from rag.prompts import DEFAULT_PROMPT_VERSION, PROMPT_VERSIONS
 from rag.retriever import HYBRID_CANDIDATES, RRF_K, RetrievedChunk, Retriever, SearchFilters
 
@@ -472,8 +472,9 @@ def main() -> None:
     parser.add_argument("--prompt-version", choices=PROMPT_VERSIONS,
                         help=f"답변 생성 시스템 프롬프트 버전 (기본: {DEFAULT_PROMPT_VERSION}, rag/prompts.py)")
     parser.add_argument("--seed", type=int, help="LLM seed (OpenAI 재현성 옵션, 반복 실행 변동 확인용)")
-    parser.add_argument("--decompose", action="store_true",
-                        help="비교 질문을 대상별 질의로 나눠 검색 (rag/decompose.py). 검색 평가에도 적용된다")
+    parser.add_argument("--decompose", action=argparse.BooleanOptionalAction, default=None,
+                        help="비교 질문을 대상별 질의로 나눠 검색 (rag/decompose.py, 기본: rag.chain.DEFAULT_DECOMPOSE). "
+                             "검색 평가에도 적용된다. 분해 채택 전 실험은 --no-decompose 로 재현한다")
     parser.add_argument("--rescore", type=Path, help="저장된 검색 결과(eval/results/...)를 현재 정답 목록으로 다시 채점")
     parser.add_argument("--ids", nargs="+", metavar="ID",
                         help="이 문항만 평가한다 (예: f021 t013). 일부 문항의 반복 실행 비교에 쓴다")
@@ -490,7 +491,8 @@ def main() -> None:
         return
     if args.k < 3:
         parser.error("--k 는 3 이상이어야 합니다 (Hit@3 계산)")
-    if (args.prompt_version or args.seed is not None) and not (args.with_answers or args.decompose):
+    decompose = DEFAULT_DECOMPOSE if args.decompose is None else args.decompose
+    if (args.prompt_version or args.seed is not None) and not (args.with_answers or decompose):
         parser.error("--prompt-version, --seed 는 --with-answers 와 함께 쓴다 (답변 생성 설정)")
 
     items = load_eval_set(settings.eval_set_path)
@@ -513,14 +515,14 @@ def main() -> None:
     if filters:
         print(f"검색 대상 문서 종류: {', '.join(args.doc_types)}")
     chain: RagChain | None = None
-    if args.with_answers or args.decompose:
+    if args.with_answers or decompose:
         try:
-            chain = get_chain(collection, mode, args.context_chunks, args.prompt_version, args.seed, args.decompose)
+            chain = get_chain(collection, mode, args.context_chunks, args.prompt_version, args.seed, decompose)
         except RuntimeError as exc:
             raise SystemExit(str(exc)) from exc
     # 질문 분해는 체인이 감싼 검색기에 있으므로 검색 평가도 그 검색기로 한다 (답변과 같은 하위 질의, 캐시 공유)
-    print(f"검색 평가 중: {len(items)}문항" + (" (질문 분해: 비교 질문은 LLM 호출 포함)" if args.decompose else ""))
-    records = evaluate_retrieval(items, chain.retriever if args.decompose else retriever, args.k, filters,
+    print(f"검색 평가 중: {len(items)}문항" + (" (질문 분해: 비교 질문은 LLM 호출 포함)" if decompose else ""))
+    records = evaluate_retrieval(items, chain.retriever if decompose else retriever, args.k, filters,
                                  progress=lambda message: print(message, flush=True))
     summary = summarize(records, args.k)
     answer_rows: list[dict[str, Any]] = []

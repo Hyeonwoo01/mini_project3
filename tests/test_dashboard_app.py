@@ -45,7 +45,7 @@ def test_every_view_renders(view, fake_db):
 
 def test_overview_hero_shows_adopted_accuracy(fake_db):
     at = AppTest.from_function(_script, default_timeout=30).run()
-    assert '<div class="cb-hero__value">57.3%</div>' in _html(at)
+    assert '<div class="cb-hero__value">61.5%</div>' in _html(at)   # 분해 v2 채택 설정 (README 실험 기록)
 
 
 def test_answer_view_filters_render(fake_db):
@@ -88,7 +88,7 @@ def test_missing_results_show_guidance(monkeypatch, tmp_path, fake_db):
     assert "평가 결과 파일을 찾을 수 없습니다" in _html(at)
 
 
-@pytest.mark.parametrize("comparison", ["chunking", "hybrid", "primary", "primary8", "decompose-v1"])
+@pytest.mark.parametrize("comparison", ["chunking", "hybrid", "primary", "primary8", "decompose-v1", "decompose-v2"])
 def test_retrieval_comparisons_render(comparison, fake_db):
     at = AppTest.from_function(_script, default_timeout=30)
     at.session_state["dashboard_view"] = "검색 실험"
@@ -98,3 +98,5 @@ def test_retrieval_comparisons_render(comparison, fake_db):
     captions = " ".join(str(c.value) for c in at.caption)
     if comparison == "decompose-v1":
         assert "양쪽 근거 포함 all@5 0.40 → 0.40" in captions
+    if comparison == "decompose-v2":
+        assert "양쪽 근거 포함 all@5 0.40 → 0.60" in captions

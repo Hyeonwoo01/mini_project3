@@ -86,6 +86,12 @@ RETRIEVAL_COMPARISONS += (
         candidate=RunRef("20261104-1541_hybrid-c500-ctx2-kb2-dec-r1", "질문 분해 v1 (번갈아 병합)"),
         decision="비교가 아닌 질문까지 쪼개 Hit@3 0.938 → 0.781, 양쪽 근거 포함(all@5) 0.40 그대로 → 채택 안 함, v2 로 수정",
     ),
+    RetrievalComparison(
+        key="decompose-v2", title="비교 질문 분해 v2", eval_set="v2.1",
+        baseline=RunRef("20261104-0636_hybrid-c500-kb2-v2.1", "분해 없음"),
+        candidate=RunRef("20261104-1558_hybrid-c500-ctx2-kb2-dec2-r1", "질문 분해 v2 (빠진 대상만 보강)"),
+        decision="Hit@3·MRR 유지, 양쪽 근거 포함(all@5) 0.40 → 0.60 (3회 같음) → 채택",
+    ),
 )
 
 # 답변 근거 청크 수 비교 (뉴스 지식베이스, 각 1회)
@@ -135,6 +141,14 @@ ANSWER_SETTINGS: tuple[AnswerSetting, ...] = (
             ("20261104-1447_hybrid-c500-ctx2-kb2-p2-seed-r3",),
         ),
     ),
+    AnswerSetting(
+        key="kb2-dec2", label="1차 자료 포함, 비교 질문 분해 v2", short="분해",
+        repetitions=(
+            ("20261104-1558_hybrid-c500-ctx2-kb2-dec2-r1",),
+            ("20261104-1600_hybrid-c500-ctx2-kb2-dec2-r2",),
+            ("20261104-1602_hybrid-c500-ctx2-kb2-dec2-r3",),
+        ),
+    ),
 )
 ANSWER_COMPARISONS: tuple[AnswerComparison, ...] = (
     AnswerComparison(key="primary", title="1차 자료 추가", baseline="news", candidate="kb2",
@@ -145,8 +159,11 @@ ANSWER_COMPARISONS: tuple[AnswerComparison, ...] = (
                      decision="회귀 없이 정답률 +3.1%p(1문항)지만 목표 t007 은 3회 모두 부분 → 기준 미달로 v1 유지, 후보로 기록"),
     AnswerComparison(key="seed", title="seed 고정", baseline="kb2-p2", candidate="kb2-p2-seed",
                      decision="실행 간 같은 답변 비율이 그대로 → 변동을 줄이지 못함, 쓰지 않음"),
+    AnswerComparison(key="decompose", title="비교 질문 분해 v2", baseline="kb2", candidate="kb2-dec2",
+                     decision="비교 정답률 20 → 40%(c002 정확, c001·c004 오답 → 부분), 등급 회귀 없음 → 채택. "
+                              "t011·c003 은 잘못된 거절이 틀린 답으로 바뀜 (한계로 기록)"),
 )
-ADOPTED_ANSWER_SETTING = "kb2"
+ADOPTED_ANSWER_SETTING = "kb2-dec2"
 
 # 거절 임계값 근거: 답변 불가 문항까지 포함한 검색 실험 (30문항)
 THRESHOLD_RUNS: tuple[RunRef, ...] = (

@@ -125,6 +125,23 @@ def test_prompt_v3_experiment_matches_readme():
     assert matrix["score_gap"].sum() == pytest.approx(1.5)
 
 
+
+def test_decomposition_v2_experiment_matches_readme():
+    """분해 v2: 정답률 57.3 → 61.5%, 비교 문항 c001·c002·c004 개선, t011·c003 은 등급이 같고(오답) 거절 대신 틀린 답."""
+    dec = ed.setting_frames(RESULTS, _setting("kb2-dec2"), "all")
+    scores = ed.mean_scores(ed.setting_summary(dec))
+    assert scores["accuracy"] == pytest.approx(0.615, abs=1e-3)
+    assert scores["accuracy_with_partial"] == pytest.approx(0.865, abs=1e-3)
+    assert scores["false_refusal_rate"] == pytest.approx(1 / 32)
+    matrix = ed.grade_matrix({"분해": dec, "v1": ed.setting_frames(RESULTS, _setting("kb2"), "all")}).set_index("id")
+    assert list(matrix.loc["c002", ["분해 1회", "분해 2회", "분해 3회"]]) == ["정확"] * 3
+    assert matrix.loc[["c001", "c004"], "score_gap"].tolist() == [pytest.approx(0.5)] * 2
+    assert matrix.loc[matrix["score_gap"] < 0].index.tolist() == ["f016"]   # 검색 결과가 같은 생성 변동
+    assert matrix["score_gap"].sum() == pytest.approx(2.5)
+    for frame in dec:
+        rows = frame.set_index("id")
+        assert not rows.loc[["t011", "c003"], "refused"].any() and (rows.loc[["t011", "c003"], "grade"] == "오답").all()
+
 def test_answer_latency_is_weighted_by_items():
     latency = ed.answer_latency(RESULTS, _setting("kb2-p2"))
     assert 2000 < latency["mean"] < 3000 and latency["p95"] > latency["mean"]

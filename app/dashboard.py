@@ -122,7 +122,7 @@ def render_overview(results_dir: Path) -> None:
     st.html(ui.hero_html(
         "답변 정답률",
         _pct(all_scores["accuracy"]),
-        f"채택 설정(하이브리드 검색 + 1차 자료, 문서당 청크 2개, 프롬프트 v1) · 답변 가능 32문항 · 3회 평균 "
+        f"채택 설정(하이브리드 검색 + 1차 자료, 문서당 청크 2개, 프롬프트 v1, 비교 질문 분해) · 답변 가능 32문항 · 3회 평균 "
         f"(실행별 {_pct(all_scores['accuracy_min'])} ~ {_pct(all_scores['accuracy_max'])}) · "
         f"부분 정답 포함 {_pct(all_scores['accuracy_with_partial'])}",
     ))
