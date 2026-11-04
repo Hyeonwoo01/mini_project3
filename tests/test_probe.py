@@ -65,6 +65,20 @@ def test_probe_saves_list_and_first_detail(tmp_path, make_fetcher, http):
     assert any(line.startswith("  키워드  보도자료 → ") for line in lines)
 
 
+
+def test_probe_lists_attachments_of_a_detail_page_target(tmp_path, make_fetcher, http):
+    """상세 페이지를 직접 확인하는 후보(detail_pattern 없음)도 그 페이지의 PDF 링크를 보여 준다. 내려받지는 않는다."""
+    http.route(f"{SITE}/robots.txt", (200, "User-agent: *\nAllow: /\n"))
+    http.route(f"{SITE}/report/7", (200, "<html><title>보고서</title><body>요약"
+                                         "<a href='/files/r7.pdf'>원문 PDF</a></body></html>"))
+    lines = []
+
+    summary = probe_target(make_fetcher(), _target(url=f"{SITE}/report/7", detail_pattern=None), tmp_path, lines.append)
+
+    assert summary == "200 · 링크 1 · 첨부 1"
+    assert f"          원문 PDF → {SITE}/files/r7.pdf" in lines
+    assert f"{SITE}/files/r7.pdf" not in http.calls
+
 def test_probe_does_not_request_page_when_robots_disallows(tmp_path, make_fetcher, http):
     http.route(f"{SITE}/robots.txt", (200, "User-agent: *\nDisallow: /press\n"))
     lines = []

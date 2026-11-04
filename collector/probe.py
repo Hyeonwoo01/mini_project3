@@ -80,6 +80,31 @@ PROBE_TARGETS: tuple[ProbeTarget, ...] = (
     ProbeTarget("kdi", "한국개발연구원", "https://www.kdi.re.kr/", keywords=("연구보고서", "KDI FOCUS", "보고서")),
     ProbeTarget("kiet", "산업연구원", "https://www.kiet.re.kr/", keywords=("연구보고서", "이슈", "보고서")),
     ProbeTarget("kipf", "한국조세재정연구원", "https://www.kipf.re.kr/", keywords=("연구보고서", "보고서")),
+    # 2차 확인 (2026-11-04): 첫 화면 probe 에서 찾은 보고서 목록 주소. 목록마다 첫 상세 페이지를 받아 상세 화면 구조와
+    # PDF 링크 형식을 본다 (수집기 파서를 실제 HTML 에 맞추기 위한 표본). 검색 폼은 받은 목록 HTML 에서 확인한다
+    ProbeTarget("kdi_report", "KDI 연구보고서 목록", "https://www.kdi.re.kr/research/reportList",
+                detail_pattern=r"/research/reportView\?pub_no=\d+", verified=True),
+    ProbeTarget("kdi_focus", "KDI FOCUS 목록", "https://www.kdi.re.kr/research/focusList",
+                detail_pattern=r"/research/focusView\?pub_no=\d+", verified=True),
+    # 평가 문항 s004(대형마트 의무휴업)의 근거로 보도된 보고서 — 상세 페이지를 직접 확인한다 (주소는 웹 검색 결과)
+    ProbeTarget("kdi_focus_19187", "KDI FOCUS 의무휴업일 평일 전환이 시사하는 유통정책의 전환 방향 (2026-05)",
+                "https://www.kdi.re.kr/research/focusView?pub_no=19187", verified=True),
+    ProbeTarget("kosi_report", "중소벤처기업연구원 정책연구 보고서 목록",
+                "https://www.kosi.re.kr/front/functionDisplay?menuFrontNo=59996687477237983229272069890802427549"
+                "&menuFrontURL=front/basicResearchList",
+                detail_pattern=r"basicResearchDetail\?dataSequence=", verified=True),
+    ProbeTarget("kiet_issue", "산업연구원 i-KIET 산업경제이슈 목록", "https://www.kiet.re.kr/research/issueList",
+                detail_pattern=r"/research/issueView\?issue_no=\d+", verified=True),
+    ProbeTarget("kiet_report", "산업연구원 연구보고서(심층 분석) 목록", "https://www.kiet.re.kr/research/reportList",
+                detail_pattern=r"/research/\w*[Vv]iew\?", verified=True),
+    ProbeTarget("kipf_all", "한국조세재정연구원 연구발간자료 전체 목록",
+                "https://www.kipf.re.kr/kor/Publication/All/kiPublish/ALL/list.do",
+                detail_pattern=r"/kor/Publication/.+/view\.do", verified=True),
+    ProbeTarget("nkis_report", "국가정책연구포털 연구보고서 목록", "https://www.nkis.re.kr/newest_list.do?otcCd=R&menuNo=103000",
+                detail_pattern=r"subject_view1\.do\?otpId=", verified=True),
+    # 첫 화면(/)은 meta refresh 로 /index.do 로 넘긴다 (1차 probe: 본문 5자)
+    ProbeTarget("si_home", "서울연구원 첫 화면 (index.do)", "https://www.si.re.kr/index.do",
+                keywords=("연구보고서", "정책리포트", "보고서", "간행물", "발간"), verified=True),
 )
 
 
@@ -174,6 +199,9 @@ def probe_target(fetcher: Fetcher, target: ProbeTarget, out_dir: Path, emit) -> 
     for sample in info.js_samples:
         emit(f"  JS링크  {sample}")
     summary = f"{result.status} · 링크 {info.link_count}"
+    if info.attachments:   # 상세 페이지를 직접 확인하는 후보: 그 페이지의 첨부(PDF 등) 링크
+        _emit_attachments(fetcher, info.attachments, emit)
+        summary += f" · 첨부 {len(info.attachments)}"
     if target.detail_pattern is None:
         return summary
 
@@ -194,12 +222,15 @@ def probe_target(fetcher: Fetcher, target: ProbeTarget, out_dir: Path, emit) -> 
     if not detail_info.attachments:
         emit("  첨부    첨부파일로 보이는 링크 없음")
         return summary
-    # 첨부는 내려받지 않고, 내려받아도 되는지(robots.txt)만 확인한다
-    first_attachment = detail_info.attachments[0][1]
-    emit(f"  첨부    {len(detail_info.attachments)}개 · 첫 첨부 robots {fetcher.check_robots(first_attachment).status}")
-    for text, url in detail_info.attachments[:ATTACHMENT_SAMPLE_LIMIT]:
-        emit(f"          {text or '(글자 없음)'} → {url}")
+    _emit_attachments(fetcher, detail_info.attachments, emit)
     return summary + f", 첨부 {len(detail_info.attachments)}"
+
+
+def _emit_attachments(fetcher: Fetcher, attachments: list[tuple[str, str]], emit) -> None:
+    # 첨부는 내려받지 않고, 내려받아도 되는지(robots.txt)만 확인한다
+    emit(f"  첨부    {len(attachments)}개 · 첫 첨부 robots {fetcher.check_robots(attachments[0][1]).status}")
+    for text, url in attachments[:ATTACHMENT_SAMPLE_LIMIT]:
+        emit(f"          {text or '(글자 없음)'} → {url}")
 
 
 def run(only: list[str] | None = None, out_dir: Path | None = None, fetcher: Fetcher | None = None) -> None:
