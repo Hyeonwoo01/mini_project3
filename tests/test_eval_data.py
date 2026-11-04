@@ -113,6 +113,18 @@ def test_prompt_v2_experiment_matches_readme():
     assert matrix["score_gap"].sum() == pytest.approx(1 / 3, abs=0.01)
 
 
+def test_prompt_v3_experiment_matches_readme():
+    """프롬프트 v3: 회귀 없이 정답률 60.4%(v1 57.3%), t007 은 3회 모두 부분."""
+    v3 = ed.mean_scores(ed.setting_summary(ed.setting_frames(RESULTS, _setting("kb2-p3"), "all")))
+    assert v3["accuracy"] == pytest.approx(0.604, abs=1e-3)
+    assert v3["accuracy_with_partial"] == pytest.approx(0.812, abs=1e-3)
+    matrix = ed.grade_matrix({"v3": ed.setting_frames(RESULTS, _setting("kb2-p3"), "all"),
+                              "v1": ed.setting_frames(RESULTS, _setting("kb2"), "all")}).set_index("id")
+    assert list(matrix.loc["t007", ["v3 1회", "v3 2회", "v3 3회"]]) == ["부분"] * 3
+    assert (matrix["score_gap"] >= 0).all()   # v1 보다 나빠진 문항 없음
+    assert matrix["score_gap"].sum() == pytest.approx(1.5)
+
+
 def test_answer_latency_is_weighted_by_items():
     latency = ed.answer_latency(RESULTS, _setting("kb2-p2"))
     assert 2000 < latency["mean"] < 3000 and latency["p95"] > latency["mean"]

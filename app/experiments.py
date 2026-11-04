@@ -111,6 +111,14 @@ ANSWER_SETTINGS: tuple[AnswerSetting, ...] = (
         ),
     ),
     AnswerSetting(
+        key="kb2-p3", label="1차 자료 포함, 프롬프트 v3", short="v3",
+        repetitions=(
+            ("20261104-1503_hybrid-c500-ctx2-kb2-p3-r1",),
+            ("20261104-1504_hybrid-c500-ctx2-kb2-p3-r2",),
+            ("20261104-1506_hybrid-c500-ctx2-kb2-p3-r3",),
+        ),
+    ),
+    AnswerSetting(
         key="kb2-p2-seed", label="프롬프트 v2 + seed 42", short="v2+seed",
         repetitions=(
             ("20261104-1443_hybrid-c500-ctx2-kb2-p2-seed-r1",),
@@ -124,6 +132,8 @@ ANSWER_COMPARISONS: tuple[AnswerComparison, ...] = (
                      decision="뉴스 문항은 변동 범위 안(t007 제외), 1차 자료 문항에서 크게 앞서 유지"),
     AnswerComparison(key="prompt", title="프롬프트 v2 (날짜 종류 구분)", baseline="kb2", candidate="kb2-p2",
                      decision="정답률 같음: t012 개선·t007 일부 개선, f006 잘못된 거절 → 채택하지 않음"),
+    AnswerComparison(key="prompt-v3", title="프롬프트 v3 (상대 날짜)", baseline="kb2", candidate="kb2-p3",
+                     decision="회귀 없이 정답률 +3.1%p(1문항)지만 목표 t007 은 3회 모두 부분 → 기준 미달로 v1 유지, 후보로 기록"),
     AnswerComparison(key="seed", title="seed 고정", baseline="kb2-p2", candidate="kb2-p2-seed",
                      decision="실행 간 같은 답변 비율이 그대로 → 변동을 줄이지 못함, 쓰지 않음"),
 )

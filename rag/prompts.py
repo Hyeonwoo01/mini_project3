@@ -44,7 +44,7 @@ _DATE_RULES_V3 = """9. 문서 본문의 '오늘', '내일', '이번 달', '내�
 SYSTEM_PROMPTS: dict[str, str] = {
     "v1": _SYSTEM_PROMPT_V1,
     "v2": _SYSTEM_PROMPT_V1 + _DATE_RULE,   # 채택 안 함: 정답률 같음, f006 잘못된 거절 (README 실험 기록)
-    "v3": _SYSTEM_PROMPT_V1 + _DATE_RULES_V3,
+    "v3": _SYSTEM_PROMPT_V1 + _DATE_RULES_V3,  # 후보: 회귀 없음·정답률 +3.1%p, 목표 t007 미해결로 기본값은 v1 유지
 }
 PROMPT_VERSIONS = tuple(SYSTEM_PROMPTS)
 DEFAULT_PROMPT_VERSION = "v1"  # 챗봇·평가의 기본값. 실험으로 채택이 확인되면 바꾼다

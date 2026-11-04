@@ -58,7 +58,7 @@ def test_answer_view_filters_render(fake_db):
     assert not at.exception, at.exception
 
 
-@pytest.mark.parametrize("comparison", ["primary", "prompt", "seed"])
+@pytest.mark.parametrize("comparison", ["primary", "prompt", "prompt-v3", "seed"])
 def test_answer_comparisons_render(comparison, fake_db):
     at = AppTest.from_function(_script, default_timeout=30)
     at.session_state["dashboard_view"] = "답변 품질"
