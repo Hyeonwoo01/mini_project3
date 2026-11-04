@@ -34,6 +34,7 @@ from app.sources import (
 from app.theme import set_page_width
 from common.docstore import get_document, open_db
 from rag.chain import RagChain, cited_numbers, get_chain, is_refusal, retrieval_query
+from rag.decompose import sub_queries
 from rag.retriever import SearchFilters
 
 logger = logging.getLogger(__name__)
@@ -266,6 +267,11 @@ def answer_question(chain: RagChain, question: str, filters: SearchFilters | Non
         answer_slot = st.empty()
         try:
             chunks = chain.retrieve_context(question, history, filters=filters)
+            split = sub_queries(chunks)
+            if split:   # 비교 질문을 대상별로 나눠 검색한 경우
+                turn.details.append("질문 분해: " + " / ".join(split))
+                with status:
+                    st.caption(turn.details[-1])
             turn.retrieval_refused = not chunks
             status.update(label="답변을 작성하는 중…" if chunks else "기준을 넘는 근거 문서 없음")
             parts: list[str] = []

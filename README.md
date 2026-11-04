@@ -314,6 +314,14 @@ python -m eval.run_eval --tag hybrid-c500-ctx2-answers --with-answers --context-
 python -m eval.run_eval --tag hybrid-c500-ctx2-kb2-p2-r1 --with-answers --context-chunks 2 --prompt-version v2
 ```
 
+`--decompose` 는 비교 질문을 LLM 으로 대상별 검색 질의로 나눠 따로 검색하고, 결과를 번갈아 합친다 (`rag/decompose.py`).
+비교가 아닌 질문은 그대로 검색한다. 검색 평가에도 적용된다. 비교 문항의 대상별 근거 포함률(`cover@k`, `all@k`)은
+평가셋 v2.1 의 `gold_groups` 로 잰다.
+
+```bash
+python -m eval.run_eval --tag hybrid-c500-ctx2-kb2-dec-r1 --with-answers --context-chunks 2 --decompose
+```
+
 **④ 챗봇** — 인덱싱을 다시 실행하지 않고 단독으로 구동된다. 프로젝트 루트에서 실행해야 `.streamlit/config.toml` 테마가 적용된다.
 Windows PowerShell 에서 `streamlit` 명령을 찾지 못하면(Scripts 폴더가 PATH 에 없음) `python -m streamlit` 으로 실행한다
 

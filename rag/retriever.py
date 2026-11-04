@@ -55,7 +55,7 @@ _EMBEDDING_CACHE_SIZE = 128
 _NON_WORD = re.compile(r"[\W_]+")
 
 
-def _title_key(metadata: dict[str, Any]) -> tuple[str, str] | None:
+def title_key(metadata: dict[str, Any]) -> tuple[str, str] | None:
     title = _NON_WORD.sub("", str(metadata.get("title", "")))
     return (title, str(metadata.get("published_at", ""))[:10]) if title else None
 
@@ -192,7 +192,7 @@ class Retriever:
             doc_id = meta["doc_id"]
             if per_doc[doc_id] >= self.max_chunks_per_doc:
                 continue
-            key = _title_key(meta) if self.collapse_same_title else None
+            key = title_key(meta) if self.collapse_same_title else None
             if key is not None and title_owner.setdefault(key, doc_id) != doc_id:
                 continue  # 같은 날 같은 제목의 다른 기사
             per_doc[doc_id] += 1
@@ -237,7 +237,7 @@ class Retriever:
             chunk = chunk_of.get(doc_id) or self._best_chunk(embedding, doc_id, where)
             if chunk is None:
                 continue  # 키워드 색인에는 있으나 컬렉션에 없는 문서 (prepare 후 build 를 안 한 경우)
-            key = _title_key(chunk.metadata) if self.collapse_same_title else None
+            key = title_key(chunk.metadata) if self.collapse_same_title else None
             if key is not None and title_owner.setdefault(key, doc_id) != doc_id:
                 continue
             results.append(replace(chunk, metadata={

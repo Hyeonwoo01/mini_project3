@@ -252,3 +252,42 @@ def test_doc_type_filter_reaches_retriever_and_chain():
         evaluate_answers([item], _Recorder(), filters=news_only)
     assert seen == [("retrieve", news_only), ("answer", news_only)]
     assert news_only.to_where() == {"doc_type": {"$in": ["news"]}}
+
+
+def test_group_coverage_counts_targets_found():
+    from eval.run_eval import group_coverage
+    groups = [("A", ["a1", "a2"]), ("B", ["b1"])]
+    assert group_coverage(["a1", "x", "y", "b1"], groups, 3) == 0.5
+    assert group_coverage(["a1", "x", "y", "b1"], groups, 5) == 1.0
+    assert group_coverage(["x"], groups, 3) == 0.0
+
+
+def test_gold_groups_are_validated(tmp_path):
+    import json
+
+    import pytest
+
+    from eval.run_eval import load_eval_set
+    base = {"id": "c001", "q": "A와 B?", "type": "comparison", "gold_doc_ids": ["a1", "b1"], "answer_key": "k"}
+    ok = tmp_path / "ok.jsonl"
+    ok.write_text(json.dumps({**base, "gold_groups": {"A": ["a1"], "B": ["b1"]}}, ensure_ascii=False) + "\n")
+    [item] = load_eval_set(ok)
+    assert item.gold_groups == (("A", ("a1",)), ("B", ("b1",)))
+    for groups in ({"A": ["a1"]}, {"A": ["a1"], "B": ["zz"]}, {"A": [], "B": ["b1"]}):
+        bad = tmp_path / "bad.jsonl"
+        bad.write_text(json.dumps({**base, "gold_groups": groups}, ensure_ascii=False) + "\n")
+        with pytest.raises(ValueError):
+            load_eval_set(bad)
+
+
+def test_rescore_and_summary_report_coverage():
+    from eval.run_eval import EvalItem, rescore_records, summarize
+    item = EvalItem(id="c001", q="A와 B?", type="comparison", gold_doc_ids=("a1", "b1"), answer_key="k",
+                    gold_groups=(("A", ("a1",)), ("B", ("b1",))))
+    stored = [{"id": "c001", "type": "comparison", "q": "A와 B?", "top_score": 0.7, "latency_ms": 10.0,
+               "retrieved": [{"rank": 1, "doc_id": "a1"}, {"rank": 2, "doc_id": "x"}, {"rank": 3, "doc_id": "y"},
+                             {"rank": 4, "doc_id": "b1"}]}]
+    [record] = rescore_records(stored, [item], 5)
+    assert (record["cover@3"], record["cover@5"], record["groups_found"]) == (0.5, 1.0, ["A", "B"])
+    coverage = summarize([record], 5)["coverage"]
+    assert coverage == {"count": 1, "cover@3": 0.5, "cover@5": 1.0, "all@3": 0.0, "all@5": 1.0}

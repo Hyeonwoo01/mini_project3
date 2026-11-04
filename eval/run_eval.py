@@ -55,6 +55,24 @@ class EvalItem:
     type: str
     gold_doc_ids: tuple[str, ...]
     answer_key: str
+    # 비교 문항: 대상별 정답 문서 (대상 이름, doc_id 들). 양쪽 근거를 모두 찾았는지(cover@k) 재는 데 쓴다
+    gold_groups: tuple[tuple[str, tuple[str, ...]], ...] = ()
+
+
+def _parse_groups(raw: Any, gold: Sequence[str]) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    if raw is None:
+        return ()
+    if not isinstance(raw, dict) or len(raw) < 2:
+        raise TypeError("gold_groups 는 대상 이름 → doc_id 리스트 사전이고 대상이 둘 이상이어야 합니다")
+    groups = []
+    for name, ids in raw.items():
+        if not isinstance(ids, list) or not ids or not all(isinstance(i, str) for i in ids):
+            raise TypeError(f"gold_groups[{name!r}] 는 비어 있지 않은 문자열 리스트여야 합니다")
+        outside = sorted(set(ids) - set(gold))
+        if outside:
+            raise TypeError(f"gold_groups[{name!r}] 에 gold_doc_ids 밖의 문서가 있습니다: {', '.join(outside)}")
+        groups.append((str(name), tuple(ids)))
+    return tuple(groups)
 
 
 def load_eval_set(path: Path) -> list[EvalItem]:
@@ -75,6 +93,7 @@ def load_eval_set(path: Path) -> list[EvalItem]:
                 type=str(raw["type"]),
                 gold_doc_ids=tuple(raw["gold_doc_ids"]),
                 answer_key=str(raw["answer_key"]),
+                gold_groups=_parse_groups(raw.get("gold_groups"), gold),
             )
         except (json.JSONDecodeError, KeyError, TypeError) as exc:
             raise ValueError(f"{path}:{line_no}: 형식 오류 ({exc})") from exc
@@ -116,6 +135,37 @@ def reciprocal_rank(ranked_doc_ids: Sequence[str], gold_doc_ids: Collection[str]
     return 0.0
 
 
+def group_coverage(ranked_doc_ids: Sequence[str], groups: Sequence[tuple[str, Sequence[str]]], k: int) -> float:
+    """상위 k개 안에 정답 문서가 하나라도 있는 대상의 비율 (비교 문항: 양쪽 근거를 모두 찾았는가)."""
+    if k <= 0:
+        raise ValueError(f"k 는 1 이상이어야 합니다: {k}")
+    if not groups:
+        raise ValueError("gold_groups 가 없는 문항입니다")
+    top = set(ranked_doc_ids[:k])
+    return sum(1 for _, ids in groups if top & set(ids)) / len(groups)
+
+
+def _retrieval_metrics(item: EvalItem, ranked: Sequence[str], k: int) -> dict[str, Any]:
+    """문항 하나의 검색 지표. 답변 불가 문항은 빈 사전."""
+    if not item.gold_doc_ids:
+        return {}
+    gold = set(item.gold_doc_ids)
+    metrics: dict[str, Any] = {
+        "gold_rank": next((rank for rank, doc_id in enumerate(ranked, start=1) if doc_id in gold), None),
+        "hit@1": hit_at_k(ranked, gold, 1),
+        "hit@3": hit_at_k(ranked, gold, 3),
+        f"hit@{k}": hit_at_k(ranked, gold, k),
+        "rr": reciprocal_rank(ranked, gold),
+    }
+    if item.gold_groups:
+        metrics.update({
+            "cover@3": group_coverage(ranked, item.gold_groups, 3),
+            f"cover@{k}": group_coverage(ranked, item.gold_groups, k),
+            "groups_found": [name for name, ids in item.gold_groups if set(ranked[:k]) & set(ids)],
+        })
+    return metrics
+
+
 def check_eval_set(path: Path) -> list[str]:
     """형식을 검증하고 유형 구성과 정답 문서 존재 여부를 출력한다. 문제 목록을 반환한다."""
     items = load_eval_set(path)
@@ -152,7 +202,8 @@ class SupportsRetrieve(Protocol):
     def retrieve(self, query: str, *, k: int, filters: SearchFilters | None = None) -> list[RetrievedChunk]: ...
 
 
-FUSION_FIELDS = ("vector_rank", "keyword_rank", "rrf_score")
+# 하이브리드 검색의 결합 정보와, 질문 분해 검색에서 그 문서를 찾은 하위 질의
+FUSION_FIELDS = ("vector_rank", "keyword_rank", "rrf_score", "sub_query")
 
 
 def evaluate_retrieval(items: Sequence[EvalItem], retriever: SupportsRetrieve, k: int,
@@ -179,16 +230,7 @@ def evaluate_retrieval(items: Sequence[EvalItem], retriever: SupportsRetrieve, k
             "top_score": round(max(c.score for c in chunks), 4) if chunks else None,
             "latency_ms": round(latency_ms, 1),
         }
-        if item.gold_doc_ids:
-            gold = set(item.gold_doc_ids)
-            first = next((rank for rank, doc_id in enumerate(ranked, start=1) if doc_id in gold), None)
-            record.update({
-                "gold_rank": first,
-                "hit@1": hit_at_k(ranked, gold, 1),
-                "hit@3": hit_at_k(ranked, gold, 3),
-                f"hit@{k}": hit_at_k(ranked, gold, k),
-                "rr": reciprocal_rank(ranked, gold),
-            })
+        record.update(_retrieval_metrics(item, ranked, k))
         records.append(record)
     return records
 
@@ -207,15 +249,7 @@ def rescore_records(records: Sequence[dict[str, Any]], items: Sequence[EvalItem]
         old = by_id[item.id]
         record = {key: old[key] for key in ("id", "type", "q", "retrieved", "top_score", "latency_ms")}
         record["gold_doc_ids"] = list(item.gold_doc_ids)
-        if item.gold_doc_ids:
-            gold, ranked = set(item.gold_doc_ids), [hit["doc_id"] for hit in old["retrieved"]]
-            record.update({
-                "gold_rank": next((rank for rank, d in enumerate(ranked, start=1) if d in gold), None),
-                "hit@1": hit_at_k(ranked, gold, 1),
-                "hit@3": hit_at_k(ranked, gold, 3),
-                f"hit@{k}": hit_at_k(ranked, gold, k),
-                "rr": reciprocal_rank(ranked, gold),
-            })
+        record.update(_retrieval_metrics(item, [hit["doc_id"] for hit in old["retrieved"]], k))
         rescored.append(record)
     return rescored
 
@@ -258,6 +292,21 @@ def summarize(records: Sequence[dict[str, Any]], k: int) -> dict[str, Any]:
         "latency_ms": {"mean": round(mean(latencies), 1), "p95": latencies[max(math.ceil(0.95 * len(latencies)) - 1, 0)]}
         if latencies else {},
         "unanswerable_count": len(unanswerable),
+        # 비교 문항(gold_groups 가 있는 문항): 대상별 근거를 상위 k 안에서 찾은 비율과, 모든 대상을 찾은 문항 비율
+        "coverage": _coverage(records, k),
+    }
+
+
+def _coverage(records: Sequence[dict[str, Any]], k: int) -> dict[str, Any]:
+    grouped = [r for r in records if "cover@3" in r]
+    if not grouped:
+        return {"count": 0}
+    return {
+        "count": len(grouped),
+        "cover@3": round(mean(r["cover@3"] for r in grouped), 4),
+        f"cover@{k}": round(mean(r[f"cover@{k}"] for r in grouped), 4),
+        "all@3": round(mean(r["cover@3"] == 1 for r in grouped), 4),
+        f"all@{k}": round(mean(r[f"cover@{k}"] == 1 for r in grouped), 4),
     }
 
 
@@ -365,6 +414,10 @@ def format_summary(summary: dict[str, Any], k: int) -> str:
                          f"Hit@{k} {m[f'hit@{k}']:.3f}  MRR {m['mrr']:.3f}  ({m['count']}문항)")
     else:
         lines.append("[검색 평가] 답변 가능 문항이 없습니다")
+    coverage = summary.get("coverage", {})
+    if coverage.get("count"):
+        lines.append(f"  비교 문항 대상별 근거 포함률 cover@3 {coverage['cover@3']:.3f} · cover@{k} {coverage[f'cover@{k}']:.3f}"
+                     f" · 모든 대상 포함 all@{k} {coverage[f'all@{k}']:.3f} ({coverage['count']}문항)")
     labels = {"answerable_hit": "정답이 1위인 문항", "answerable_miss": f"정답을 {k}위 안에 못 찾은 문항",
               "unanswerable": "답변 불가 문항"}
     for name, stats in summary["top_score"].items():
@@ -416,6 +469,8 @@ def main() -> None:
     parser.add_argument("--prompt-version", choices=PROMPT_VERSIONS,
                         help=f"답변 생성 시스템 프롬프트 버전 (기본: {DEFAULT_PROMPT_VERSION}, rag/prompts.py)")
     parser.add_argument("--seed", type=int, help="LLM seed (OpenAI 재현성 옵션, 반복 실행 변동 확인용)")
+    parser.add_argument("--decompose", action="store_true",
+                        help="비교 질문을 대상별 질의로 나눠 검색 (rag/decompose.py). 검색 평가에도 적용된다")
     parser.add_argument("--rescore", type=Path, help="저장된 검색 결과(eval/results/...)를 현재 정답 목록으로 다시 채점")
     parser.add_argument("--ids", nargs="+", metavar="ID",
                         help="이 문항만 평가한다 (예: f021 t013). 일부 문항의 반복 실행 비교에 쓴다")
@@ -432,7 +487,7 @@ def main() -> None:
         return
     if args.k < 3:
         parser.error("--k 는 3 이상이어야 합니다 (Hit@3 계산)")
-    if (args.prompt_version or args.seed is not None) and not args.with_answers:
+    if (args.prompt_version or args.seed is not None) and not (args.with_answers or args.decompose):
         parser.error("--prompt-version, --seed 는 --with-answers 와 함께 쓴다 (답변 생성 설정)")
 
     items = load_eval_set(settings.eval_set_path)
@@ -454,15 +509,17 @@ def main() -> None:
     filters = SearchFilters(doc_types=tuple(DocType(t) for t in args.doc_types)) if args.doc_types else None
     if filters:
         print(f"검색 대상 문서 종류: {', '.join(args.doc_types)}")
-    records = evaluate_retrieval(items, retriever, args.k, filters)
-    summary = summarize(records, args.k)
-    answer_rows: list[dict[str, Any]] = []
     chain: RagChain | None = None
-    if args.with_answers:
+    if args.with_answers or args.decompose:
         try:
-            chain = get_chain(collection, mode, args.context_chunks, args.prompt_version, args.seed)
+            chain = get_chain(collection, mode, args.context_chunks, args.prompt_version, args.seed, args.decompose)
         except RuntimeError as exc:
             raise SystemExit(str(exc)) from exc
+    # 질문 분해는 체인이 감싼 검색기에 있으므로 검색 평가도 그 검색기로 한다 (답변과 같은 하위 질의, 캐시 공유)
+    records = evaluate_retrieval(items, chain.retriever if args.decompose else retriever, args.k, filters)
+    summary = summarize(records, args.k)
+    answer_rows: list[dict[str, Any]] = []
+    if args.with_answers:
         print(f"답변 생성 중: {len(items)}문항 (문항당 수 초)")
         answer_rows = evaluate_answers(items, chain, progress=lambda message: print(message, flush=True),
                                        filters=filters)
@@ -476,7 +533,8 @@ def main() -> None:
         "eval_set_items": len(items), "ids": list(args.ids) if args.ids else None, "git_commit": _git_commit(),
         "chain": {"top_k": chain.config.top_k, "min_score": chain.config.min_score,
                   "context_chunks": chain.config.context_chunks, "chat_model": settings.chat_model,
-                  "prompt_version": chain.config.prompt_version, "seed": args.seed} if chain else None,
+                  "prompt_version": chain.config.prompt_version, "seed": args.seed,
+                  "decompose": chain.config.decompose} if chain else None,
         "evaluated_at": datetime.now().isoformat(timespec="seconds"),
     }
     out = save_results(records, summary, config, args.tag, settings.eval_results_dir)
