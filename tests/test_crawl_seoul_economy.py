@@ -113,3 +113,18 @@ def test_run_follows_paging_dry_run_and_reports_missing_date(tmp_path, make_fetc
 
     stats = seoul.run(max_pages=1, fetcher=make_fetcher(), db_path=tmp_path / "b.db")
     assert stats.pages == 1 and len(stats.failed) == 1 and "등록일" in stats.failed[0]
+
+
+def test_run_does_not_refetch_post_with_empty_body(tmp_path, make_fetcher, http, raw_store):
+    db = tmp_path / "docs.db"
+    http.route(f"{SITE}/robots.txt", (404, ""))
+    http.route(LIST, (200, list_html([_post(7, "포스터만 있는 공지", "2025-04-01")])))
+    http.route(f"{SITE}/economy/archives/7", (200, "<html><body><div id='post_content'><p><img src='a.png'></p>"
+                                                    "<div class='tagDiv'>태그</div></div></body></html>"))
+
+    first = seoul.run(fetcher=make_fetcher(), db_path=db)
+    calls = len(http.calls)
+    again = seoul.run(fetcher=make_fetcher(), db_path=db)
+
+    assert first.saved == 1 and (again.saved, again.already) == (0, 1)
+    assert f"{SITE}/economy/archives/7" not in http.calls[calls:]

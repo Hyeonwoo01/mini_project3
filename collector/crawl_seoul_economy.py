@@ -118,8 +118,8 @@ def parse_detail(html: str) -> Detail:
 
 
 def _already_saved(conn, doc_id: str) -> bool:
-    row = conn.execute("SELECT raw_text FROM documents WHERE doc_id = ?", (doc_id,)).fetchone()
-    return bool(row and row["raw_text"])
+    # 본문이 비어 있는 글(포스터만 있는 공지)도 저장된 것으로 본다. 본문 여부로 판정하면 매번 다시 받는다
+    return conn.execute("SELECT 1 FROM documents WHERE doc_id = ?", (doc_id,)).fetchone() is not None
 
 
 def collect_item(fetcher: Fetcher, item: ListItem, list_url: str) -> DocumentRecord:
