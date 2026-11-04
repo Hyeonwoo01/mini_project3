@@ -1,6 +1,7 @@
 """정답 문서 보정 (pooling) — 검색 결과에서 정답 목록 밖 문서를 모아 판정하고 평가셋에 반영한다.
 
     python -m eval.pool eval/results/<기준선1> eval/results/<기준선2>   # 판정표 생성 → data/pool_candidates.md
+    python -m eval.pool primary8-kb2 primary8-news                    # 태그만 주면 그 태그의 최신 결과 폴더
     python -m eval.pool --apply data/pool_candidates.md                # 체크한 문서를 정답에 추가
 
 정보검색 평가의 pooling 방식이다. 평가셋을 만들 때 정답 문서를 엄격하게 골라서, 내용상 정답인 문서를
@@ -61,6 +62,14 @@ def snippet(text: str, numbers: list[str]) -> tuple[str, list[str]]:
     start = max(pos - SNIPPET_RADIUS, 0)
     body = text[start:pos + SNIPPET_RADIUS].replace("\n", " ")
     return ("…" if start else "") + body + "…", found
+
+
+def resolve_result_dir(arg: Path, results_dir: Path) -> Path:
+    """결과 폴더 경로, 또는 실험 태그(폴더 이름의 '<시각>_' 뒤). 태그면 가장 최근 폴더를 쓴다."""
+    if arg.is_dir():
+        return arg
+    matches = sorted(d for d in results_dir.glob(f"*_{arg.name}") if d.is_dir())
+    return matches[-1] if matches else arg
 
 
 def load_judged(path: Path = JUDGED_PATH) -> dict[str, list[str]]:
@@ -195,6 +204,7 @@ def main() -> None:
 
     if not args.results:
         parser.error("실험 결과 디렉터리 또는 --apply 가 필요합니다")
+    args.results = [resolve_result_dir(d, settings.eval_results_dir) for d in args.results]
     missing = [d for d in args.results if not (d / "retrieval.jsonl").is_file()]
     if missing:
         parser.error(f"retrieval.jsonl 이 없습니다: {', '.join(map(str, missing))}")

@@ -1,3 +1,4 @@
+from pathlib import Path
 import json
 
 from eval.pool import (PoolEntry, answer_numbers, apply_judgments, collect_pool, parse_judgments, snippet,
@@ -82,3 +83,13 @@ def test_apply_keeps_gold_documents_out_of_judged(tmp_path):
     assert apply_judgments(eval_set, judged, {"t007": (["n"], ["m"])}) == {"t007": 1}
 
     assert json.loads(judged.read_text(encoding="utf-8")) == {"f001": ["z"], "t007": ["m"]}
+
+
+def test_resolve_result_dir_accepts_tag(tmp_path):
+    from eval.pool import resolve_result_dir
+
+    for name in ("20261104-1100_primary8-kb2", "20261104-1200_primary8-kb2", "20261104-1100_primary8-news"):
+        (tmp_path / name).mkdir()
+    assert resolve_result_dir(Path("primary8-kb2"), tmp_path) == tmp_path / "20261104-1200_primary8-kb2"
+    assert resolve_result_dir(tmp_path / "20261104-1100_primary8-news", tmp_path).name == "20261104-1100_primary8-news"
+    assert resolve_result_dir(Path("nothing"), tmp_path) == Path("nothing")
