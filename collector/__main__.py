@@ -4,6 +4,7 @@
     python -m collector provided              # 제공 뉴스 데이터 적재
     python -m collector korea-kr --query ... [--ministry ...]  # 정책브리핑 보도자료 수집
     python -m collector seoul-economy         # 서울시 경제분야 누리집 소상공인 지원 소식
+    python -m collector reports-search        # 연구기관 보고서 후보 검색 (선별 수집 1단계)
     python -m collector blog --query ...      # 블로그 검색 API 수집
     python -m collector law --name ...        # 핵심 법령 현행 조문 수집
 """
@@ -43,6 +44,10 @@ def build_parser() -> argparse.ArgumentParser:
     seoul.add_argument("--max-pages", type=int, help="목록별 최대 쪽 수 (생략 시 끝까지)")
     seoul.add_argument("--dry-run", action="store_true", help="받을 목록만 보여 주고 받지 않는다")
 
+    reports = sub.add_parser("reports-search", help="연구기관 보고서 후보 검색 → data/raw/_probe/reports/candidates.tsv")
+    reports.add_argument("--only", nargs="+", metavar="KEY", help="검색할 기관 key (예: kdi_focus kiet_issue)")
+    reports.add_argument("--keyword", action="append", help="검색어 (생략 시 선별 기준의 주제어 전체, 반복 지정 가능)")
+
     blog = sub.add_parser("blog", help="블로그 검색 API 수집")
     blog.add_argument("--query", action="append", required=True, help="검색어 (반복 지정 가능)")
     blog.add_argument("--max-results", type=int, default=100)
@@ -71,6 +76,9 @@ def main() -> None:
         from collector import crawl_seoul_economy
         crawl_seoul_economy.run(list_urls=args.list_url, start=args.start, max_pages=args.max_pages,
                                 dry_run=args.dry_run)
+    elif args.command == "reports-search":
+        from collector import report_search
+        report_search.run(only=args.only, keywords=args.keyword)
     elif args.command == "blog":
         from collector import crawl_blog
         crawl_blog.run(queries=args.query, max_results=args.max_results)

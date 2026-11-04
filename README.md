@@ -239,6 +239,13 @@ python -m collector korea-kr --query 소상공인 --ministry 중소벤처기업�
 python -m collector seoul-economy
 ```
 
+연구기관 보고서는 선별 수집한다. 먼저 기관 목록(KDI·산업연구원·중소벤처기업연구원·조세재정연구원·서울연구원)을 선별 기준의
+주제어로 검색해 후보 목록을 만들고 (`data/raw/_probe/reports/candidates.tsv`, 본문은 받지 않음), 그중 10~20건을 골라 수집한다.
+
+```bash
+python -m collector reports-search
+```
+
 ```bash
 python -m collector blog --query "검색어"
 ```
