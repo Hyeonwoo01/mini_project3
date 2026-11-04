@@ -79,6 +79,15 @@ RETRIEVAL_COMPARISONS: tuple[RetrievalComparison, ...] = (
     ),
 )
 
+RETRIEVAL_COMPARISONS += (
+    RetrievalComparison(
+        key="decompose-v1", title="비교 질문 분해 v1", eval_set="v2.1",
+        baseline=RunRef("20261104-0636_hybrid-c500-kb2-v2.1", "분해 없음"),
+        candidate=RunRef("20261104-1541_hybrid-c500-ctx2-kb2-dec-r1", "질문 분해 v1 (번갈아 병합)"),
+        decision="비교가 아닌 질문까지 쪼개 Hit@3 0.938 → 0.781, 양쪽 근거 포함(all@5) 0.40 그대로 → 채택 안 함, v2 로 수정",
+    ),
+)
+
 # 답변 근거 청크 수 비교 (뉴스 지식베이스, 각 1회)
 CONTEXT_CHUNK_COMPARISON = (
     RunRef("20261103-1649_hybrid-c500-answers", "문서당 청크 1개"),

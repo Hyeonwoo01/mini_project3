@@ -86,3 +86,15 @@ def test_missing_results_show_guidance(monkeypatch, tmp_path, fake_db):
     at.run()
     assert not at.exception
     assert "평가 결과 파일을 찾을 수 없습니다" in _html(at)
+
+
+@pytest.mark.parametrize("comparison", ["chunking", "hybrid", "primary", "primary8", "decompose-v1"])
+def test_retrieval_comparisons_render(comparison, fake_db):
+    at = AppTest.from_function(_script, default_timeout=30)
+    at.session_state["dashboard_view"] = "검색 실험"
+    at.session_state["retrieval_comparison"] = comparison
+    at.run()
+    assert not at.exception, at.exception
+    captions = " ".join(str(c.value) for c in at.caption)
+    if comparison == "decompose-v1":
+        assert "양쪽 근거 포함 all@5 0.40 → 0.40" in captions

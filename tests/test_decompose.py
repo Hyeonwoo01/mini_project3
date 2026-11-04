@@ -1,7 +1,14 @@
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
 
 from rag.chain import ChainConfig, RagChain
-from rag.decompose import DecomposingRetriever, QueryDecomposer, interleave, parse_queries, sub_queries
+from rag.decompose import (
+    DecomposingRetriever,
+    QueryDecomposer,
+    fill_missing_targets,
+    looks_like_comparison,
+    parse_queries,
+    sub_queries,
+)
 from rag.retriever import RetrievedChunk
 
 
@@ -66,46 +73,68 @@ def test_decomposer_caches_and_survives_llm_errors():
     assert QueryDecomposer(Broken(responses=["x"])).decompose("질문") == ["질문"]
 
 
-def test_interleave_alternates_and_skips_duplicates():
-    a = [_chunk("a1"), _chunk("shared"), _chunk("a3")]
-    b = [_chunk("b1"), _chunk("shared"), _chunk("b2"), _chunk("b3")]
-    assert [c.doc_id for c in interleave([a, b], 5)] == ["a1", "b1", "shared", "a3", "b2"]
-    # 같은 날 같은 제목의 다른 기사도 한 번만
-    same = [_chunk("x", title="같은 제목"), _chunk("y", title="같은 제목")]
-    assert [c.doc_id for c in interleave([same[:1], same[1:]], 5)] == ["x"]
+def test_comparison_cues():
+    assert looks_like_comparison("A와 B 는 지원 방식이 어떻게 다른가?")
+    assert looks_like_comparison("정부와 반대 측은 각각 어떤 논리를 폈나?")
+    assert looks_like_comparison("완화에 대해 어떤 상반된 근거가 있나?")
+    assert not looks_like_comparison("상생페이백 11월분 지급 금액과 지급 인원은?")
+    assert not looks_like_comparison("2026년 상반기 우대수수료율이 적용되는 가맹점은 몇 개인가?")
 
 
-def test_single_query_passes_through_unchanged():
+def test_fill_missing_targets_keeps_base_and_adds_missing_target():
+    base = [_chunk("a1"), _chunk("a2"), _chunk("x1"), _chunk("x2"), _chunk("x3")]
+    per_query = [[_chunk("a1"), _chunk("a9")], [_chunk("b1"), _chunk("b2")]]
+    merged = fill_missing_targets(base, per_query, 5)
+    assert [c.doc_id for c in merged] == ["a1", "a2", "x1", "x2", "b1"]   # 가장 낮은 순위(x3)를 B 의 1위로
+
+
+def test_fill_missing_targets_gives_every_target_a_slot_from_the_bottom():
+    base = [_chunk("x1"), _chunk("x2"), _chunk("x3"), _chunk("x4"), _chunk("x5")]
+    per_query = [[_chunk("a1")], [_chunk("b1")], [_chunk("c1")]]
+    # 대상 3개가 모두 빠졌으면 아래에서부터 3자리를 내준다 (k=5 면 원래 결과 상위 2건은 남는다)
+    assert [c.doc_id for c in fill_missing_targets(base, per_query, 5)] == ["x1", "x2", "a1", "b1", "c1"]
+    # 보강 문서끼리는 서로 밀어내지 않는다
+    assert [c.doc_id for c in fill_missing_targets(base[:2], per_query, 3)] == ["a1", "b1", "c1"]
+
+
+def test_fill_missing_targets_treats_same_title_as_present():
+    base = [_chunk("x", title="같은 제목")]
+    assert [c.doc_id for c in fill_missing_targets(base, [[_chunk("y", title="같은 제목")]], 5)] == ["x"]
+
+
+def test_non_comparison_question_is_not_decomposed():
     inner = FakeRetriever({"사실 질문": [_chunk("d1"), _chunk("d2")]})
-    retriever = DecomposingRetriever(inner, CountingDecomposer({}))
+    decomposer = CountingDecomposer({})
+    retriever = DecomposingRetriever(inner, decomposer)
     result = retriever.retrieve("사실 질문", k=5)
-    assert [c.doc_id for c in result] == ["d1", "d2"]
+    assert [c.doc_id for c in result] == ["d1", "d2"] and decomposer.calls == 0
     assert all("sub_query" not in c.metadata for c in result)
     assert retriever.mode == "hybrid" and retriever.collection == "docs__test"
 
 
-def test_comparison_query_retrieves_each_target_and_tags_chunks():
-    inner = FakeRetriever({"A 지원": [_chunk("a1"), _chunk("a2"), _chunk("a3")],
+def test_comparison_query_fills_missing_target_and_tags_it():
+    inner = FakeRetriever({"A와 B 비교": [_chunk("a1"), _chunk("a2"), _chunk("a3"), _chunk("x1"), _chunk("x2")],
+                           "A 지원": [_chunk("a1"), _chunk("a2")],
                            "B 지원": [_chunk("b1"), _chunk("b2")]})
     retriever = DecomposingRetriever(inner, CountingDecomposer({"A와 B 비교": ["A 지원", "B 지원"]}))
-    result = retriever.retrieve("A와 B 비교", k=4)
-    assert inner.queries == ["A 지원", "B 지원"]
-    assert [c.doc_id for c in result] == ["a1", "b1", "a2", "b2"]
-    assert [c.metadata["sub_query"] for c in result] == ["A 지원", "B 지원", "A 지원", "B 지원"]
-    assert sub_queries(result) == ["A 지원", "B 지원"]
+    result = retriever.retrieve("A와 B 비교", k=5)
+    assert inner.queries == ["A와 B 비교", "A 지원", "B 지원"]
+    assert [c.doc_id for c in result] == ["a1", "a2", "a3", "x1", "b1"]
+    assert result[-1].metadata["sub_query"] == "B 지원" and "sub_query" not in result[0].metadata
+    assert sub_queries(result) == ["B 지원"]
 
     retriever.expand_context("A와 B 비교", result, per_doc=2)
-    assert sorted(inner.expand_calls) == [("A 지원", ["a1", "a2"]), ("B 지원", ["b1", "b2"])]
+    assert sorted(inner.expand_calls) == [("A와 B 비교", ["a1", "a2", "a3", "x1"]), ("B 지원", ["b1"])]
 
 
-def test_chain_with_decompose_uses_split_queries():
+def test_chain_with_decompose_adds_the_missing_side():
     inner = FakeRetriever({"A 지원": [_chunk("a1", 0.8)], "B 지원": [_chunk("b1", 0.7)],
                            "A와 B 비교": [_chunk("a1", 0.8), _chunk("a2", 0.75)]})
-    llm = FakeListChatModel(responses=['{"queries": ["A 지원", "B 지원"]}', "A 는 … [1], B 는 … [2]"])
+    llm = FakeListChatModel(responses=['{"queries": ["A 지원", "B 지원"]}', "A 는 … [1], B 는 … [3]"])
     chain = RagChain(inner, llm, ChainConfig(top_k=5, min_score=0.5, decompose=True))
     result = chain.answer("A와 B 비교")
-    assert [c.doc_id for c in result.chunks] == ["a1", "b1"]
-    assert result.cited == [1, 2]
+    assert [c.doc_id for c in result.chunks] == ["a1", "a2", "b1"]
+    assert result.cited == [1, 3]
 
 
 def test_chain_without_decompose_keeps_plain_retriever():

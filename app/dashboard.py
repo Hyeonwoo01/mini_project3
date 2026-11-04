@@ -185,8 +185,10 @@ def render_retrieval(results_dir: Path) -> None:
     key = st.segmented_control("비교", [c.key for c in RETRIEVAL_COMPARISONS], default=RETRIEVAL_COMPARISONS[0].key,
                                required=True, format_func=lambda k: _comparison(k).title, key="retrieval_comparison")
     comparison = _comparison(key or RETRIEVAL_COMPARISONS[0].key)
-    count = summary(root, comparison.candidate.run_id)["overall"]["count"]
-    st.caption(f"평가셋 {comparison.eval_set} · 답변 가능 {count}문항 · k=5 · 결정: {comparison.decision}")
+    candidate_summary = summary(root, comparison.candidate.run_id)
+    count = candidate_summary["overall"]["count"]
+    st.caption(f"평가셋 {comparison.eval_set} · 답변 가능 {count}문항 · k=5{_coverage_note(root, comparison)} · "
+               f"결정: {comparison.decision}")
 
     metrics = ed.comparison_metrics(results_dir, comparison)
     by_type = ed.comparison_by_type(results_dir, comparison)
@@ -219,6 +221,16 @@ def render_retrieval(results_dir: Path) -> None:
         table.insert(1, "평가셋", [c.eval_set for c in RETRIEVAL_COMPARISONS for _ in (0, 1)])
         st.dataframe(table, hide_index=True, column_config={
             m: st.column_config.NumberColumn(format="%.3f") for m in ("Hit@1", "Hit@3", "Hit@5", "MRR")})
+
+
+def _coverage_note(root: str, comparison: RetrievalComparison) -> str:
+    """두 실험 모두 비교 문항 대상별 정답(평가셋 v2.1 이상)으로 채점됐으면 양쪽 근거 포함률을 덧붙인다."""
+    base = summary(root, comparison.baseline.run_id).get("coverage", {})
+    cand = summary(root, comparison.candidate.run_id).get("coverage", {})
+    if not (base.get("count") and cand.get("count")):
+        return ""
+    return (f" · 비교 문항 양쪽 근거 포함 all@5 {base['all@5']:.2f} → {cand['all@5']:.2f}"
+            f" (대상별 cover@5 {base['cover@5']:.2f} → {cand['cover@5']:.2f})")
 
 
 # ---- 답변 품질 ----

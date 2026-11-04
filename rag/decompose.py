@@ -4,10 +4,17 @@
 평가셋 v2.1 의 비교 5문항(대상별 정답 문서 `gold_groups`) 기준으로, 채택 설정에서 양쪽 근거를 상위 5건에 모두 찾은
 문항은 2개다 (c002·c005). c001·c004 는 한쪽만, c003 은 둘 다 못 찾았다 (README 실험 기록).
 
-LLM 으로 질문을 대상별 검색 질의로 나눠 따로 검색하고, 결과를 순위대로 번갈아 합쳐 대상마다 근거 자리를 준다.
-- 비교가 아닌 질문은 LLM 이 원래 질문 하나만 돌려주고, 그때는 기존 검색과 똑같이 동작한다
+방식 (v2)
+1. 질문에 비교 표현(다른가·차이·비교·각각·상반 …)이 없으면 분해하지 않는다 → 기존 검색과 똑같고 LLM 호출도 없다
+2. LLM 이 질문을 대상별 검색 질의로 나눈다. 한 대상의 여러 항목(대상·금액·방식 등)은 나누지 않는다
+3. **원래 질문의 검색 결과를 그대로 두고**, 그 안에 문서가 없는 대상만 그 대상 질의의 1위 문서로 보강한다
+   (가장 낮은 순위 문서를 바꾼다). 근거 수 k 는 그대로다
+
+v1(대상별 결과를 번갈아 합침)은 쓰지 않는다. LLM 이 비교가 아닌 질문(38문항 중 25개)까지 항목별로 쪼갰고, 번갈아
+합치면서 질문 전체와 맞던 문서가 밀려 Hit@3 0.938 → 0.781, MRR 0.891 → 0.70 으로 떨어졌다. 양쪽 근거 포함(all@5)은
+0.40 그대로였다 (`...-kb2-dec-r1~r3`). 같은 결과로 v2 의 병합을 시뮬레이션하면 Hit@3·MRR 은 유지되고 all@5 는 0.60 이다.
+
 - 분해에 실패하면(LLM 오류·형식 오류) 원래 질문으로 검색한다. 분해가 검색을 막지 않는다
-- 근거 수 k 는 그대로다. 대상마다 자리를 나눌 뿐 컨텍스트를 늘리지 않는다 (한 번에 한 변수만 바꾼다)
 - 같은 질문의 분해 결과는 캐시한다. 평가 하네스의 검색 평가와 답변 평가가 같은 하위 질의를 쓰게 하기 위해서다
 """
 
@@ -30,14 +37,23 @@ MAX_QUERIES = 3
 CACHE_SIZE = 256
 SUB_QUERY_FIELD = "sub_query"   # 청크 메타데이터: 그 문서를 찾은 하위 질의 (분해했을 때만)
 
-# 규칙은 질문 형식에 관한 것만 둔다 (평가 문항의 대상 이름을 넣지 않는다)
+# 비교 표현: 이 중 하나도 없으면 LLM 을 부르지 않는다 (사실 질문의 응답 시간·불필요한 분해를 줄인다)
+# '상반기'(상반 + 기)는 비교 표현이 아니므로 뺀다
+COMPARISON_CUES = re.compile(r"다른가|다른지|다른 점|달라|차이|비교|각각|대조|상반(?!기)|어느 쪽|어느 것|\bvs\b", re.I)
+
+# 규칙과 예시는 질문 형식에 관한 것만 둔다 (평가 문항의 대상 이름을 넣지 않는다)
 DECOMPOSE_SYSTEM_PROMPT = """당신은 문서 검색 질의를 만드는 도우미다. 질문을 읽고 검색에 쓸 질의를 JSON 으로만 답한다.
 
 규칙:
-1. 질문이 둘 이상의 대상(정책·사업·기관·지역·시기)을 비교하거나 서로 다른 입장을 대조하면, 대상마다 따로 검색할 질의를 하나씩 만든다.
-2. 각 질의에는 그 대상의 이름과, 질문에 있는 시점·조건(연도, '하반기' 등)과 비교 항목을 그대로 넣는다. 다른 대상의 이름은 넣지 않는다.
-3. 비교·대조 질문이 아니면 질문을 그대로 하나만 돌려준다.
-4. 질의는 최대 3개다.
+1. 질문이 서로 다른 대상(정책·사업·기관·지역·시기)을 비교하거나 서로 다른 입장을 대조하면, 대상마다 따로 검색할 질의를 하나씩 만든다.
+2. 한 대상의 여러 항목(대상·금액·방식·기간·내용 등)은 나누지 않는다. 항목은 질의 안에 그대로 둔다.
+3. 각 질의에는 그 대상의 이름과, 질문에 있는 시점·조건(연도, '하반기' 등)과 비교 항목을 넣는다. 다른 대상의 이름은 넣지 않는다.
+4. 대상 비교·입장 대조가 아니면 질문을 그대로 하나만 돌려준다.
+5. 질의는 최대 3개다.
+
+예:
+- 'A시와 B시의 청년 창업 지원금은 금액과 기간이 어떻게 다른가?' → {{"queries": ["A시 청년 창업 지원금 금액 기간", "B시 청년 창업 지원금 금액 기간"]}}
+- 'C 사업의 지원 대상과 지원 금액은?' → {{"queries": ["C 사업의 지원 대상과 지원 금액은?"]}}
 
 출력 형식: {{"queries": ["질의1", "질의2"]}}"""
 
@@ -81,25 +97,34 @@ class QueryDecomposer:
         return list(queries)
 
 
-def interleave(result_lists: Sequence[Sequence[RetrievedChunk]], k: int) -> list[RetrievedChunk]:
-    """하위 질의별 검색 결과를 순위대로 번갈아 합친다 (1위끼리, 2위끼리 …). 같은 문서·같은 날 같은 제목은 한 번만."""
-    merged: list[RetrievedChunk] = []
-    seen_docs: set[str] = set()
-    seen_titles: set[tuple[str, str]] = set()
-    for rank in range(max((len(results) for results in result_lists), default=0)):
-        for results in result_lists:
-            if rank >= len(results):
+def looks_like_comparison(question: str) -> bool:
+    return bool(COMPARISON_CUES.search(question))
+
+
+def fill_missing_targets(base: Sequence[RetrievedChunk], per_query: Sequence[Sequence[RetrievedChunk]],
+                         k: int) -> list[RetrievedChunk]:
+    """원래 질문의 결과(base)를 유지하고, base 에 1위 문서가 없는 하위 질의만 그 1위 문서로 보강한다.
+
+    보강 문서는 base 에서 보호되지 않은 가장 낮은 순위 문서 자리를 대신해 맨 뒤에 붙는다. 같은 문서·같은 날 같은 제목은
+    중복으로 보고 건너뛴다. 반환 길이는 k 이하다."""
+    merged = list(base[:k])
+    protected: set[str] = set()
+    for results in per_query:
+        if not results:
+            continue
+        top = results[0]
+        present = {c.doc_id for c in merged}
+        titles = {title_key(c.metadata) for c in merged} - {None}
+        if top.doc_id in present or title_key(top.metadata) in titles:
+            protected.add(top.doc_id)
+            continue
+        if len(merged) >= k:
+            drop = next((i for i in range(len(merged) - 1, -1, -1) if merged[i].doc_id not in protected), None)
+            if drop is None:
                 continue
-            chunk = results[rank]
-            key = title_key(chunk.metadata)
-            if chunk.doc_id in seen_docs or (key is not None and key in seen_titles):
-                continue
-            seen_docs.add(chunk.doc_id)
-            if key is not None:
-                seen_titles.add(key)
-            merged.append(chunk)
-            if len(merged) == k:
-                return merged
+            merged.pop(drop)
+        merged.append(top)
+        protected.add(top.doc_id)
     return merged
 
 
@@ -117,18 +142,21 @@ class DecomposingRetriever:
         return getattr(self.inner, name)
 
     def retrieve(self, query: str, *, k: int, filters: SearchFilters | None = None) -> list[RetrievedChunk]:
+        base = self.inner.retrieve(query, k=k, filters=filters)
+        if not looks_like_comparison(query):
+            return base
         queries = self.decomposer.decompose(query)
         if len(queries) < 2:
-            return self.inner.retrieve(query, k=k, filters=filters)
+            return base
         per_query = [
             [replace(c, metadata={**c.metadata, SUB_QUERY_FIELD: q}) for c in self.inner.retrieve(q, k=k, filters=filters)]
             for q in queries
         ]
-        return interleave(per_query, k)
+        return fill_missing_targets(base, per_query, k)
 
     def expand_context(self, query: str, chunks: list[RetrievedChunk], *, per_doc: int,
                        filters: SearchFilters | None = None) -> list[RetrievedChunk]:
-        """근거 확장도 그 문서를 찾은 하위 질의로 한다 (질문 전체로 고르면 다른 대상 쪽 청크가 끌려온다)."""
+        """보강 문서의 근거 확장은 그 문서를 찾은 하위 질의로 한다 (질문 전체로 고르면 다른 대상 쪽 청크가 끌려온다)."""
         if not any(SUB_QUERY_FIELD in c.metadata for c in chunks):
             return self.inner.expand_context(query, chunks, per_doc=per_doc, filters=filters)
         groups: dict[str, list[RetrievedChunk]] = defaultdict(list)
