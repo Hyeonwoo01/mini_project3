@@ -7,7 +7,7 @@
     python -m collector reports-search        # 연구기관 보고서 후보 검색 (선별 수집 1단계)
     python -m collector reports               # 선별한 연구기관 보고서 수집 (2단계)
     python -m collector blog --query ...      # 블로그 검색 API 수집
-    python -m collector law --name ...        # 핵심 법령 현행 조문 수집
+    python -m collector law [--only 법령명] [--dry-run]   # 핵심 법령 현행 조문 수집 (.env 의 LAW_OC)
 """
 
 import argparse
@@ -56,8 +56,9 @@ def build_parser() -> argparse.ArgumentParser:
     blog.add_argument("--query", action="append", required=True, help="검색어 (반복 지정 가능)")
     blog.add_argument("--max-results", type=int, default=100)
 
-    law = sub.add_parser("law", help="국가법령정보센터 법령 현행 조문 수집")
-    law.add_argument("--name", action="append", required=True, help="법령명 (반복 지정 가능)")
+    law = sub.add_parser("law", help="국가법령정보센터 법령 현행 조문 수집 (collector/collect_law.py)")
+    law.add_argument("--only", action="append", metavar="법령명", help="수집 목록 중 이 법령만 (반복 지정 가능)")
+    law.add_argument("--dry-run", action="store_true", help="수집 목록만 보여 주고 요청하지 않는다")
 
     return parser
 
@@ -91,7 +92,16 @@ def main() -> None:
         crawl_blog.run(queries=args.query, max_results=args.max_results)
     elif args.command == "law":
         from collector import collect_law
-        collect_law.run(law_names=args.name)
+        targets = collect_law.CURATED_LAWS
+        if args.only:
+            unknown = set(args.only) - {t.name for t in targets}
+            if unknown:
+                raise SystemExit(f"수집 목록에 없는 법령: {', '.join(sorted(unknown))}")
+            targets = tuple(t for t in targets if t.name in args.only)
+        try:
+            collect_law.run(dry_run=args.dry_run, targets=targets, prune=not args.only)
+        except RuntimeError as exc:   # LAW_OC 미설정
+            raise SystemExit(str(exc)) from exc
 
 
 if __name__ == "__main__":

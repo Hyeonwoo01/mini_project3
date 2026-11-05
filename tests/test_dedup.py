@@ -7,6 +7,7 @@ from indexer.dedup import (
     content_hash,
     count_duplicates,
     deduplicate,
+    get_dedup_config,
     jaccard,
     shingles,
     similar_pairs,
@@ -111,3 +112,12 @@ def test_rewrite_of_same_press_release_merges_only_with_title_rule():
 def test_title_rule_config_validation():
     with pytest.raises(ValueError):
         DedupConfig(name="x", similarity_threshold=0.8, title_threshold=0.5, body_floor=0.9)
+
+
+def test_law_articles_are_never_merged():
+    text = "상가건물 임대차보호법 임대인은 임차인이 계약갱신을 요구할 경우 정당한 사유 없이 거절하지 못한다. " * 5
+    docs = [_doc("law_a", text, doc_type=DocType.LAW), _doc("law_b", text, doc_type=DocType.LAW),
+            _doc("news_a", text), _doc("news_b", text)]
+    results = deduplicate(docs, get_dedup_config("v2"))
+    assert not results["law_a"].is_duplicate and not results["law_b"].is_duplicate
+    assert results["news_b"].canonical_doc_id == "news_a"           # 다른 종류는 그대로 묶는다

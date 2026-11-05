@@ -281,8 +281,15 @@ python -m collector reports
 python -m collector blog --query "검색어"
 ```
 
+법령은 국가법령정보센터 Open API 인증값이 필요하다: open.law.go.kr 회원가입 → OPEN API 활용 신청 (법령 종류 선택, 호출할 PC 의
+IP 또는 도메인 등록) → 승인 후 가입 이메일의 @ 앞부분(OC)을 `.env` 의 `LAW_OC` 에 넣는다. 인증값은 출력·오류·저장 원본에서 가린다.
+
 ```bash
-python -m collector law --name "법령명"
+python -m collector law --dry-run
+```
+
+```bash
+python -m collector law
 ```
 
 **② 인덱싱** — 결과: `processed_documents`, `store/chroma/` 의 `docs__<설정명>` 컬렉션

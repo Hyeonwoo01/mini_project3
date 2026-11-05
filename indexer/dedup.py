@@ -35,6 +35,9 @@ from common.schema import SOURCE_TIER, DocType, SourceTier
 
 _NON_WORD = re.compile(r"[\W_]+")
 _TIER_RANK = {SourceTier.PRIMARY: 0, SourceTier.PRESS: 1, SourceTier.USER_GENERATED: 2}
+# 중복 처리에서 빼는 종류. 법령은 조문 하나가 문서 하나라 같은 법의 조문끼리 제목('법령명 제n조')이 닮고 시행일이
+# 같아, 같은 보도자료 기사 규칙(제목 유사 + 본문 일부 유사)에 걸릴 수 있다. 선별 수집이라 중복이 생기지 않는다.
+NO_DEDUP_TYPES = frozenset({DocType.LAW})
 
 
 @dataclass(frozen=True)
@@ -218,7 +221,10 @@ def _rank(doc: DedupInput) -> tuple:
 
 
 def deduplicate(docs: Sequence[DedupInput], config: DedupConfig) -> dict[str, DedupResult]:
-    """모든 문서에 대해 대표 문서와 유사도를 반환한다."""
+    """모든 문서에 대해 대표 문서와 유사도를 반환한다. NO_DEDUP_TYPES 문서는 비교하지 않고 각자 대표가 된다."""
+    results: dict[str, DedupResult] = {d.doc_id: DedupResult(d.doc_id, d.doc_id, 1.0)
+                                       for d in docs if d.doc_type in NO_DEDUP_TYPES}
+    docs = [d for d in docs if d.doc_type not in NO_DEDUP_TYPES]
     by_id = {d.doc_id: d for d in docs}
     sets = _shingle_sets(docs, config)
     union_find = _UnionFind(by_id)
@@ -236,7 +242,6 @@ def deduplicate(docs: Sequence[DedupInput], config: DedupConfig) -> dict[str, De
         if _is_duplicate_pair(by_id[a], by_id[b], similarity, config):
             union_find.union(a, b)
 
-    results: dict[str, DedupResult] = {}
     for group in union_find.groups():
         canonical = min(group, key=lambda doc_id: _rank(by_id[doc_id]))
         for doc_id in group:
