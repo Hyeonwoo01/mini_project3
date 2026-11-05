@@ -1,0 +1,80 @@
+{
+  "config": {
+    "tag": "law-nolaw-r1-v2.3pool",
+    "collection": "docs__c500",
+    "k": 5,
+    "mode": "hybrid",
+    "hybrid": {
+      "candidates": 50,
+      "rrf_k": 60
+    },
+    "doc_types": [
+      "news",
+      "press_release",
+      "announcement",
+      "policy_report"
+    ],
+    "max_chunks_per_doc": 1,
+    "collapse_same_title": true,
+    "collection_metadata": {
+      "embedding_model": "text-embedding-3-small",
+      "chunk_overlap": 100,
+      "include_title": true,
+      "chunk_size": 500,
+      "chunk_config": "c500",
+      "created_at": "2026-11-03T05:01:17+00:00"
+    },
+    "eval_set_items": 4,
+    "ids": [
+      "f030",
+      "f031",
+      "f032",
+      "f033"
+    ],
+    "git_commit": "07f7fbe",
+    "chain": null,
+    "evaluated_at": "2026-11-05T04:29:46",
+    "rescored_from": "20261105-1309_law-nolaw-r1"
+  },
+  "overall": {
+    "count": 4,
+    "hit@1": 0.25,
+    "hit@3": 0.25,
+    "hit@5": 0.25,
+    "mrr": 0.25
+  },
+  "by_type": {
+    "fact": {
+      "count": 4,
+      "hit@1": 0.25,
+      "hit@3": 0.25,
+      "hit@5": 0.25,
+      "mrr": 0.25
+    }
+  },
+  "top_score": {
+    "answerable_hit": {
+      "count": 1,
+      "min": 0.7145,
+      "median": 0.7145,
+      "max": 0.7145
+    },
+    "answerable_miss": {
+      "count": 3,
+      "min": 0.5801,
+      "median": 0.6215,
+      "max": 0.6753
+    },
+    "unanswerable": {
+      "count": 0
+    }
+  },
+  "latency_ms": {
+    "mean": 1763.9,
+    "p95": 3710.7
+  },
+  "unanswerable_count": 0,
+  "coverage": {
+    "count": 0
+  }
+}
