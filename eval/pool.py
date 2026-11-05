@@ -3,6 +3,7 @@
     python -m eval.pool eval/results/<기준선1> eval/results/<기준선2>   # 판정표 생성 → data/pool_candidates.md
     python -m eval.pool primary8-kb2 primary8-news                    # 태그만 주면 그 태그의 최신 결과 폴더
     python -m eval.pool --apply data/pool_candidates.md                # 체크한 문서를 정답에 추가
+    python -m eval.pool --show news_20250710_b2e69f1d kr_20250804_9b19c59e  # 발췌로 판정할 수 없는 문서의 전문
 
 정보검색 평가의 pooling 방식이다. 평가셋을 만들 때 정답 문서를 엄격하게 골라서, 내용상 정답인 문서를
 검색기가 찾아도 오답으로 집계되는 경우가 있다 (기준선 실패 분석의 '정답 목록 누락').
@@ -28,6 +29,7 @@ from eval.run_eval import load_eval_set
 
 DEFAULT_TOP = 5
 DEFAULT_OUT = PROJECT_ROOT / "data" / "pool_candidates.md"
+FULLTEXT_OUT = PROJECT_ROOT / "data" / "pool_fulltext.md"
 JUDGED_PATH = PROJECT_ROOT / "eval" / "pool_judged.json"
 SNIPPET_RADIUS = 90
 LEAD_CHARS = 200
@@ -179,14 +181,38 @@ def apply_judgments(eval_set: Path, judged_path: Path, judgments: dict[str, tupl
     return added
 
 
+def write_fulltext(conn, doc_ids: list[str], path: Path) -> list[str]:
+    """판정용 전문 (정제 본문, 없으면 원문 텍스트). 찾지 못한 doc_id 를 반환한다. data/ 아래라 git 에 올리지 않는다."""
+    parts, missing = [], []
+    for doc_id in doc_ids:
+        row = conn.execute(
+            "SELECT d.title, d.source, d.published_at, COALESCE(p.clean_text, d.raw_text, '') FROM documents AS d "
+            "LEFT JOIN processed_documents AS p ON p.doc_id = d.doc_id WHERE d.doc_id = ?", (doc_id,)).fetchone()
+        if row is None:
+            missing.append(doc_id)
+            continue
+        title, source, published_at, text = row
+        parts.append(f"## `{doc_id}` {(published_at or '')[:10]} {source} **{title}**\n\n{text}\n")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(parts), encoding="utf-8")
+    return missing
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="python -m eval.pool", description="정답 문서 보정 (pooling)")
     parser.add_argument("results", nargs="*", type=Path, help="비교할 실험 결과 디렉터리 (eval/results/...)")
     parser.add_argument("--top", type=int, default=DEFAULT_TOP, help="실험별로 판정할 상위 건수")
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT, help="판정표 파일")
     parser.add_argument("--apply", type=Path, help="판정이 끝난 판정표를 평가셋에 반영")
+    parser.add_argument("--show", nargs="+", metavar="DOC_ID", help=f"문서 전문을 {FULLTEXT_OUT.name} 에 저장 (발췌로 판정할 수 없을 때)")
     args = parser.parse_args()
     settings = get_settings()
+
+    if args.show:
+        with open_db(read_only=True) as conn:
+            missing = write_fulltext(conn, args.show, FULLTEXT_OUT)
+        print(f"저장: {FULLTEXT_OUT} ({len(args.show) - len(missing)}건)" + (f" · 없음: {', '.join(missing)}" if missing else ""))
+        return
 
     if args.apply:
         if not args.apply.is_file():

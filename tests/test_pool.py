@@ -93,3 +93,22 @@ def test_resolve_result_dir_accepts_tag(tmp_path):
     assert resolve_result_dir(Path("primary8-kb2"), tmp_path) == tmp_path / "20261104-1200_primary8-kb2"
     assert resolve_result_dir(tmp_path / "20261104-1100_primary8-news", tmp_path).name == "20261104-1100_primary8-news"
     assert resolve_result_dir(Path("nothing"), tmp_path) == Path("nothing")
+
+
+def test_write_fulltext_uses_clean_text_and_reports_missing(tmp_path):
+    from common.docstore import open_db, replace_processed_documents, upsert_documents
+    from common.schema import CollectMethod, DocType, DocumentRecord, ProcessedRecord
+    from eval.pool import write_fulltext
+
+    db = tmp_path / "docs.db"
+    with open_db(db) as conn:
+        upsert_documents(conn, [DocumentRecord(doc_id="kr_1", doc_type=DocType.PRESS_RELEASE, source="행정안전부",
+                                               title="개정안 국회 통과", url="https://x/1", published_at="2025-08-04",
+                                               collected_at="2026-11-05", collect_method=CollectMethod.CRAWL)])
+        replace_processed_documents(conn, [ProcessedRecord(doc_id="kr_1", status="kept", processed_at="2026-11-05",
+                                                           clean_text="매년 보조금 예산 신청을 받아 반영한다.")])
+    out = tmp_path / "full.md"
+    with open_db(db, read_only=True) as conn:
+        assert write_fulltext(conn, ["kr_1", "news_x"], out) == ["news_x"]
+    text = out.read_text(encoding="utf-8")
+    assert text.startswith("## `kr_1` 2025-08-04 행정안전부 **개정안 국회 통과**") and "보조금 예산 신청" in text
