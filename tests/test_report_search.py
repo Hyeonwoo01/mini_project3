@@ -37,8 +37,9 @@ KIPF_LIST = """<div class="col">
 KDI_LIST = """<ul><li><a href="./focusView?pub_no=19187"><img src="x.png"></a>
 <a href="./focusView?pub_no=19187">KDI FOCUS 의무휴업일 평일 전환이 시사하는 유통정책의 전환 방향</a> #경쟁정책 12p</li></ul>"""
 
-SI_LIST = """<ul><li><a href="/bbs/view.do?key=2024100039&pstSn=2611030001">서울 골목상권 매출 변화 분석</a></li>
-<li><a href="/bbs/view.do?key=2024100039&pstSn=2611030002">서울시 도시교통 수요 전망</a></li></ul>"""
+# 서울연구원: 항목은 자바스크립트 goView('글번호')
+SI_LIST = """<ul><li><a href="#none" onclick="goView('2611030001')">서울 골목상권 매출 변화 분석</a></li>
+<li><a href="#none" onclick="goView('2611030002')">서울시 도시교통 수요 전망</a></li></ul>"""
 
 
 def test_parse_kiet_list_reads_title_and_date_of_each_item():
@@ -120,12 +121,19 @@ def test_search_source_warns_when_site_ignores_keyword(tmp_path, make_fetcher, h
 
 
 def test_unsearchable_board_keeps_only_topic_titles(tmp_path, make_fetcher, http):
-    source = SOURCES["si_report"]
-    _robots(http, "https://www.si.re.kr")
-    http.route(source.search_url(""), (200, SI_LIST))
+    source = ReportSource("board", "기관", lambda kw: "https://x.kr/list", re.compile(r"id=(\d+)"),
+                          lambda m: f"https://x.kr/view?id={m[1]}", searchable=False)
+    _robots(http, "https://x.kr")
+    http.route("https://x.kr/list", (200, '<a href="/v?id=1">서울 골목상권 매출 변화</a> <a href="/v?id=2">도시교통 전망</a>'))
     cands, stats = search_source(make_fetcher(), source, ["상권", "유통"], tmp_path, lambda line: None)
-    assert [c.title for c in cands] == ["서울 골목상권 매출 변화 분석"]
+    assert [c.title for c in cands] == ["서울 골목상권 매출 변화"]
     assert stats.requests == 2       # 검색어마다가 아니라 목록 1쪽 + 첫 상세 표본(없는 주소라 404 실패)
+
+
+def test_seoul_institute_items_open_by_script():
+    [first, second] = parse_candidates(SI_LIST, SOURCES["si_report"], "상권")
+    assert first.url == "https://www.si.re.kr/bbs/view.do?key=2024100039&pstSn=2611030001"
+    assert first.title_topics == ["골목상권·전통시장"] and second.title_topics == []
 
 
 def test_failures_are_reported_and_do_not_stop_the_run(tmp_path, make_fetcher, http):

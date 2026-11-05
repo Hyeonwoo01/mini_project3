@@ -16,7 +16,9 @@
   항목 h4.title a[href=...basicResearchDetail?dataSequence=코드]. 목록에는 발행일이 없다
 - 한국조세재정연구원 연구발간자료: 목록 list.do ?pageIndex=&searchCondition=all&searchKeyword=검색어. 사이트 폼은 POST 지만
   GET 파라미터로 같은 검색이 되는지 이 결과로 확인한다. 항목 a[onclick=fn_search_detail('일련번호')], 글자에 '발간월 2026-10'
-- 서울연구원 연구보고서·정책리포트: 게시판 /bbs/list.do?key=. 검색 파라미터를 아직 모르므로 1쪽만 받아 제목으로 거른다
+- 서울연구원 연구보고서·정책리포트: 게시판 /bbs/list.do?key=&sw=검색어 (사이트 폼은 POST, GET 동작은 결과로 확인).
+  항목은 a[onclick=goView('글번호')], 상세 /bbs/view.do?key=&pstSn=글번호 (첫 화면 링크로 확인). 1차 검색에서는
+  항목 링크 형식을 몰라 0건이었다
 - 국가정책연구포털(NKIS)은 검색·상세가 모두 POST·자바스크립트라 쓰지 않는다. 소관 기관(KDI·산업연구원·조세연)은
   기관 누리집에서 직접 찾는다
 
@@ -85,10 +87,9 @@ def _kiet(board: str, view: str, id_name: str) -> ReportSource:
 def _si(name: str, board_key: str) -> ReportSource:
     return ReportSource(
         key=f"si_{name}", institute="서울연구원",
-        search_url=lambda kw: f"https://www.si.re.kr/bbs/list.do?key={board_key}",
-        item_link=re.compile(rf"/bbs/view\.do\?key={board_key}&pstSn=(\d+)"),
+        search_url=lambda kw: "https://www.si.re.kr/bbs/list.do?" + urlencode({"key": board_key, "sw": kw, "pageIndex": 1}),
+        item_link=re.compile(r"goView\('(\d+)'\)"),
         detail_url=lambda m: f"https://www.si.re.kr/bbs/view.do?key={board_key}&pstSn={m[1]}",
-        searchable=False,
     )
 
 
