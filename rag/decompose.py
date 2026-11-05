@@ -10,11 +10,6 @@
 3. **원래 질문의 검색 결과를 그대로 두고**, 그 안에 문서가 없는 대상만 그 대상 질의의 1위 문서로 보강한다
    (가장 낮은 순위 문서를 바꾼다). 근거 수 k 는 그대로다
 
-보강 문서의 시점 (v2.1): 하위 질의에 'YYYY년' 이 있으면, 보강할 문서는 발행 연도가 [가장 이른 언급 연도 − 1, 가장 늦은
-언급 연도 + 1] 안인 문서 중 가장 높은 순위로 고른다 (예산·계획 기사는 그 해 이전에, 통계·결과 기사는 다음 해에 나온다). 범위 안 문서가
-없으면 보강하지 않는다. 분해 v2 에서 c003 의 '2026년 하반기' 하위 질의가 2024-09 보도자료를 보강해 틀린 답이 된 것에
-대한 수정이다. 원래 질문의 결과에는 적용하지 않는다 (연도로 자르면 '2026년 예산'처럼 전년도 기사가 정답인 질문이 깨진다).
-
 v1(대상별 결과를 번갈아 합침)은 쓰지 않는다. LLM 이 비교가 아닌 질문(38문항 중 25개)까지 항목별로 쪼갰고, 번갈아
 합치면서 질문 전체와 맞던 문서가 밀려 Hit@3 0.938 → 0.781, MRR 0.891 → 0.70 으로 떨어졌다. 양쪽 근거 포함(all@5)은
 0.40 그대로였다 (`...-kb2-dec-r1~r3`). 같은 결과로 v2 의 병합을 시뮬레이션하면 Hit@3·MRR 은 유지되고 all@5 는 0.60 이다.
@@ -102,45 +97,22 @@ class QueryDecomposer:
         return list(queries)
 
 
-_YEAR = re.compile(r"(20\d{2})\s*년")
-
-
-def year_window(query: str) -> tuple[int, int] | None:
-    """질의에 나온 연도로 보강 문서의 발행 연도 범위를 정한다. 연도가 없으면 None (제한 없음)."""
-    years = [int(y) for y in _YEAR.findall(query)]
-    return (min(years) - 1, max(years) + 1) if years else None
-
-
-def _published_year(chunk: RetrievedChunk) -> int | None:
-    value = str(chunk.metadata.get("published_at") or "")[:4]
-    return int(value) if value.isdigit() else None
-
-
-def _in_window(chunk: RetrievedChunk, window: tuple[int, int] | None) -> bool:
-    if window is None:
-        return True
-    year = _published_year(chunk)
-    return year is not None and window[0] <= year <= window[1]
-
-
 def looks_like_comparison(question: str) -> bool:
     return bool(COMPARISON_CUES.search(question))
 
 
 def fill_missing_targets(base: Sequence[RetrievedChunk], per_query: Sequence[Sequence[RetrievedChunk]],
-                         k: int, windows: Sequence[tuple[int, int] | None] | None = None) -> list[RetrievedChunk]:
+                         k: int) -> list[RetrievedChunk]:
     """원래 질문의 결과(base)를 유지하고, base 에 1위 문서가 없는 하위 질의만 그 1위 문서로 보강한다.
 
-    windows[i] 가 있으면 i번째 하위 질의의 '1위'는 발행 연도가 그 범위 안인 문서 중 가장 높은 순위다 (없으면 보강 안 함).
     보강 문서는 base 에서 보호되지 않은 가장 낮은 순위 문서 자리를 대신해 맨 뒤에 붙는다. 같은 문서·같은 날 같은 제목은
     중복으로 보고 건너뛴다. 반환 길이는 k 이하다."""
     merged = list(base[:k])
     protected: set[str] = set()
-    windows = list(windows) if windows is not None else [None] * len(per_query)
-    for results, window in zip(per_query, windows):
-        top = next((c for c in results if _in_window(c, window)), None)
-        if top is None:
+    for results in per_query:
+        if not results:
             continue
+        top = results[0]
         present = {c.doc_id for c in merged}
         titles = {title_key(c.metadata) for c in merged} - {None}
         if top.doc_id in present or title_key(top.metadata) in titles:
@@ -180,7 +152,7 @@ class DecomposingRetriever:
             [replace(c, metadata={**c.metadata, SUB_QUERY_FIELD: q}) for c in self.inner.retrieve(q, k=k, filters=filters)]
             for q in queries
         ]
-        return fill_missing_targets(base, per_query, k, [year_window(q) for q in queries])
+        return fill_missing_targets(base, per_query, k)
 
     def expand_context(self, query: str, chunks: list[RetrievedChunk], *, per_doc: int,
                        filters: SearchFilters | None = None) -> list[RetrievedChunk]:

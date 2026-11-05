@@ -150,31 +150,3 @@ def test_decompose_is_default_and_skips_llm_for_non_comparison_questions():
     chain = RagChain(inner, llm, ChainConfig(top_k=5, min_score=0.5))
     assert isinstance(chain.retriever, DecomposingRetriever)
     assert [c.doc_id for c in chain.retriever.retrieve("C 사업 지원 금액은?", k=5)] == ["c1"]
-
-
-def test_year_window_allows_one_year_either_side():
-    from rag.decompose import year_window
-    assert year_window("중기부 소상공인 금융지원 계획 2026년 하반기") == (2025, 2027)
-    assert year_window("2025년과 2026년 글로컬상권") == (2024, 2027)
-    assert year_window("민생회복 소비쿠폰 지급 대상") is None
-
-
-def test_fill_skips_sub_query_results_outside_the_year_window():
-    """하위 질의 1위가 질문 시점과 먼 문서면 범위 안의 다음 문서로 보강하고, 범위 안 문서가 없으면 보강하지 않는다."""
-    base = [_chunk("s1", date="2026-07-10"), _chunk("s2", date="2026-02-09")]
-    old, new = _chunk("m_old", date="2024-09-11"), _chunk("m_new", date="2026-09-01")
-    assert [c.doc_id for c in fill_missing_targets(base, [[old, new]], k=3, windows=[(2025, 2027)])] == ["s1", "s2", "m_new"]
-    assert [c.doc_id for c in fill_missing_targets(base, [[old]], k=3, windows=[(2025, 2027)])] == ["s1", "s2"]
-    assert [c.doc_id for c in fill_missing_targets(base, [[old]], k=3)] == ["s1", "s2", "m_old"]   # 연도 없음 = 이전과 같음
-
-
-def test_year_window_is_not_applied_to_the_original_question_results():
-    from rag.decompose import QueryDecomposer
-    inner = FakeRetriever({
-        "2026년 A시와 B시 지원은 어떻게 다른가?": [_chunk("a_2025", date="2025-11-01")],   # 원래 결과는 그대로
-        "A시 지원 2026년": [_chunk("a_2025", date="2025-11-01")],
-        "B시 지원 2026년": [_chunk("b_2023", date="2023-03-01"), _chunk("b_2026", date="2026-05-01")],
-    })
-    retriever = DecomposingRetriever(inner, CountingDecomposer({"2026년 A시와 B시 지원은 어떻게 다른가?":
-                                                                 ["A시 지원 2026년", "B시 지원 2026년"]}))
-    assert [c.doc_id for c in retriever.retrieve("2026년 A시와 B시 지원은 어떻게 다른가?", k=3)] == ["a_2025", "b_2026"]
