@@ -31,6 +31,7 @@ from common.docstore import open_db
 from common.embeddings import get_embedding_model
 from common.schema import DocType
 from indexer.chunk import Chunk, ChunkConfig, ChunkSource, chunk_document
+from indexer.dates import annotate_relative_dates
 
 ADD_BATCH = 256                 # 한 번에 임베딩·적재하는 청크 수
 PROGRESS_EVERY_SEC = 30         # 진행 상황 출력 간격 (멈춤을 바로 알아챌 수 있게)
@@ -51,6 +52,8 @@ class BuildStats:
     metadata_updated: int = 0
     already_present: int = 0
     removed_stale: int = 0
+    dated_documents: int = 0      # normalize_dates 설정에서 날짜를 덧붙인 문서 수
+    dated_expressions: int = 0
     body_lengths: list[int] = field(default_factory=list)
 
     def summary(self) -> str:
@@ -62,6 +65,8 @@ class BuildStats:
                          f"/ 95% {q[18]:.0f} / 최대 {max(self.body_lengths)}자")
             short = sum(length < 100 for length in self.body_lengths)
             lines.append(f"  100자 미만 청크: {short:,}개 ({short / len(self.body_lengths):.1%})")
+        if self.dated_expressions:
+            lines.append(f"  상대 날짜에 날짜 덧붙임: 문서 {self.dated_documents:,}건 · 표현 {self.dated_expressions:,}개")
         lines.append(f"  빈 청크로 제외: {self.skipped_empty:,}개")
         lines.append(f"  새로 적재 {self.added:,}개 · 내용 변경으로 갱신 {self.updated:,}개 "
                      f"· 메타데이터만 갱신 {self.metadata_updated:,}개 · 이미 있음 {self.already_present:,}개 "
@@ -113,6 +118,10 @@ def _make_chunks(conn: Connection, config: ChunkConfig, stats: BuildStats) -> li
     chunks: list[Chunk] = []
     for source in iter_chunk_sources(conn):
         stats.documents += 1
+        if config.normalize_dates:
+            found = sum(annotate_relative_dates(text, source.published_at)[1] for text in (source.title, source.text))
+            stats.dated_documents += found > 0
+            stats.dated_expressions += found
         doc_chunks = chunk_document(source, config)
         if not doc_chunks:
             stats.skipped_empty += 1
@@ -151,6 +160,7 @@ def build_collection(
         configuration={"hnsw": {"space": "cosine"}},
         metadata={"embedding_model": model_name, "chunk_config": config.name, "chunk_size": config.chunk_size,
                   "chunk_overlap": config.chunk_overlap, "include_title": config.include_title,
+                  "normalize_dates": config.normalize_dates,
                   "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds")},
     )
     stored_model = (col.metadata or {}).get("embedding_model")

@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from common.schema import SOURCE_TIER, DocType
+from indexer.dates import annotate_relative_dates
 
 # 문단 → 줄 → 문장 → 쉼표 → 공백 순으로 자를 곳을 찾는다. 문장부호는 앞 문장에 붙여 둔다.
 SEPARATORS = ["\n\n", "\n", ". ", "? ", "! ", ", ", " ", ""]
@@ -32,6 +33,8 @@ class ChunkConfig:
     chunk_size: int
     chunk_overlap: int
     include_title: bool = True
+    # 상대 날짜('내년', '내일')에 발행일 기준 날짜를 덧붙인다 (indexer/dates.py). 메타데이터 title 은 원문 그대로
+    normalize_dates: bool = False
     # 문서 종류별로 다른 (chunk_size, chunk_overlap) 을 적용할 때 사용한다
     overrides: dict[DocType, tuple[int, int]] = field(default_factory=dict)
 
@@ -50,6 +53,8 @@ CHUNK_CONFIGS: dict[str, ChunkConfig] = {
     "c1000": ChunkConfig(name="c1000", chunk_size=1000, chunk_overlap=150),
     # 제목 포함 효과를 재는 비교 실험용 (가이드 4-4: 제목 포함 여부가 검색 정확도에 유의미한 차이)
     "c500-notitle": ChunkConfig(name="c500-notitle", chunk_size=500, chunk_overlap=100, include_title=False),
+    # 상대 날짜 정규화 실험용 (t007·t011)
+    "c500-dates": ChunkConfig(name="c500-dates", chunk_size=500, chunk_overlap=100, normalize_dates=True),
 }
 
 
@@ -112,7 +117,11 @@ def chunk_document(doc: ChunkSource, config: ChunkConfig) -> list[Chunk]:
         chunk_size=size, chunk_overlap=overlap, separators=SEPARATORS, keep_separator="end",
         strip_whitespace=True,
     )
-    bodies = _merge_short_tail([b for b in splitter.split_text(doc.text) if b.strip()])
+    title, body_text = doc.title, doc.text
+    if config.normalize_dates:
+        title, _ = annotate_relative_dates(title, doc.published_at)
+        body_text, _ = annotate_relative_dates(body_text, doc.published_at)
+    bodies = _merge_short_tail([b for b in splitter.split_text(body_text) if b.strip()])
     chunks = []
     for index, body in enumerate(bodies):
         chunk_id = f"{doc.doc_id}#{index:03d}"
@@ -130,6 +139,6 @@ def chunk_document(doc: ChunkSource, config: ChunkConfig) -> list[Chunk]:
             "source_tier": SOURCE_TIER[doc.doc_type].value,
             "scope": doc.scope or "",
         }
-        text = f"{doc.title}\n\n{body}" if config.include_title else body
+        text = f"{title}\n\n{body}" if config.include_title else body
         chunks.append(Chunk(chunk_id=chunk_id, doc_id=doc.doc_id, text=text, body=body, metadata=metadata))
     return chunks

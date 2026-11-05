@@ -169,3 +169,10 @@ def test_metadata_only_change_updates_without_embedding(env):
     col = chromadb.PersistentClient(path=str(chroma)).get_collection("docs__c500")
     assert col.get(ids=["b#000"], include=["metadatas"])["metadatas"][0]["scope"] == "seoul"
     assert "메타데이터만 갱신 1개" in stats.summary()
+
+
+def test_dates_dry_run_counts_annotated_expressions(env):
+    db, chroma, kwargs = env
+    stats = build_collection(get_chunk_config("c500-dates"), "docs__c500-dates", dry_run=True, **kwargs)
+    assert (stats.dated_documents, stats.dated_expressions) == (2, 15)      # '다음 달' 이 a 에 12번, b 에 3번
+    assert "표현 15개" in stats.summary()
