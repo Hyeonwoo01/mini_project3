@@ -155,7 +155,8 @@ mini_project3/
 │   ├── load_provided.py    #   제공 데이터 적재 및 선별
 │   ├── crawl_korea_kr.py   #   정책브리핑 보도자료 수집 (PDF 원문)
 │   ├── crawl_seoul_economy.py # 서울시 경제분야 누리집 소상공인 지원 소식
-│   ├── crawl_blog.py       #   블로그 검색 API 수집
+│   ├── report_search.py    #   연구기관 보고서 후보 검색
+│   ├── crawl_reports.py    #   선별한 연구기관 보고서 요약·전문 수집
 │   ├── collect_law.py      #   법령 현행 조문 수집
 │   └── storage.py          #   원본 파일 저장, doc_id 생성
 ├── indexer/                # ② 인덱싱 계층 (배치)
@@ -217,12 +218,17 @@ pip install -r requirements-dev.txt
 ```
 
 ```bash
-cp .env.example .env        # 이후 .env 에 OPENAI_API_KEY 등을 채운다
+cp .env.example .env        # Windows: copy .env.example .env  → 이후 .env 에 OPENAI_API_KEY 를 채운다
 ```
 
 ## 실행 순서
 
 모든 명령은 프로젝트 루트에서 실행한다. 각 계층은 독립적으로 실행된다.
+
+챗봇만 띄우려면 아래 명령 중 이것만 차례로 실행하면 된다. 나머지(`--quality none`, `c1000`, 평가)는 실험 재현용이다.
+`provided` → `korea-kr`(중기부·금융위·행안부) → `seoul-economy` → `reports` → `law` → `indexer prepare` →
+`indexer build --chunk-config c500` → `streamlit run app/main.py`. 원본 데이터와 `store/` 는 저장소에 없으므로
+처음 받은 PC 에서는 수집부터 해야 한다. `indexer build` 는 청크 약 5.6만 개를 임베딩 API 로 보내므로 시간과 API 비용이 든다.
 
 **① 수집** — 결과: `store/docs.db` 의 `documents`, `data/raw/`
 
@@ -251,8 +257,18 @@ PDF 원문(없으면 HWPX)을 `data/raw/press_release/` 에 저장하고, 본문
 python -m collector korea-kr --query 소상공인 --ministry 중소벤처기업부 --count-only
 ```
 
+지식베이스는 아래 세 명령으로 수집했다 (중기부 451 · 금융위 18 · 행안부 18).
+
 ```bash
-python -m collector korea-kr --query 소상공인 --ministry 중소벤처기업부
+python -m collector korea-kr --query 소상공인 --ministry 중소벤처기업부 --title-keyword 소상공인 --title-keyword 상권 --title-keyword 시장 --title-keyword 골목 --title-keyword 자영업 --title-keyword 온누리 --title-keyword 상점가 --title-keyword 폐업 --title-keyword 가게
+```
+
+```bash
+python -m collector korea-kr --query 카드수수료 --ministry 금융위원회 --title-keyword 가맹점 --title-keyword 수수료
+```
+
+```bash
+python -m collector korea-kr --query 지역사랑상품권 --ministry 행정안전부 --title-keyword 지역사랑상품권 --title-keyword 지역화폐 --title-keyword 상품권
 ```
 
 서울시 경제분야 누리집의 소기업·소상공인 종합지원 새소식은 본문을 수집 시점에 추출해 저장한다
@@ -276,10 +292,6 @@ python -m collector reports-search
 python -m collector reports
 ```
 
-```bash
-python -m collector blog --query "검색어"
-```
-
 법령은 국가법령정보센터 Open API 인증값이 필요하다: open.law.go.kr 회원가입 → OPEN API 활용 신청 (인증키 OC 를 직접 정함, 서버
 IP·도메인은 선택, 법령 종류는 '법령') → 신청 때 직접 정한 API인증키(OC)를 `.env` 의 `LAW_OC` 에 넣는다 (자동 승인). 인증값은 출력·오류·저장 원본에서 가린다.
 
@@ -298,6 +310,7 @@ python -m indexer prepare
 ```
 
 품질 필터 없이 실행하면 개선 전 기준 실험이 된다 (`--quality none`). 결과 요약의 사유별 건수가 처리 전후 건수다.
+이 명령은 처리 결과(`processed_documents`)와 키워드 색인을 덮어쓰므로, 실험 뒤에는 `python -m indexer prepare` 를 다시 실행하고 색인한다.
 
 ```bash
 python -m indexer prepare --quality none
