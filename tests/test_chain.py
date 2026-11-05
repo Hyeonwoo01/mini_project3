@@ -163,3 +163,19 @@ def test_prompt_version_selects_system_prompt():
 def test_unknown_prompt_version_is_rejected():
     with pytest.raises(ValueError, match="프롬프트 버전"):
         ChainConfig(prompt_version="v9")
+
+
+def test_context_annotates_relative_dates_only_when_enabled():
+    chunk = _chunk("a", 0.7, title="내일부터 지급")
+    assert "내일(2025년 12월 17일)부터 지급" in format_context([chunk], annotate_dates=True)
+    assert "(2025년 12월 17일)" not in format_context([chunk])
+    assert chunk.text == "내일부터 지급\n\n본문 a"          # 검색 결과(출처 표시용)는 바꾸지 않는다
+
+
+def test_chain_passes_annotated_context_to_prompt():
+    chain = RagChain(FakeRetriever([]), FakeListChatModel(responses=["답변"]),
+                     ChainConfig(annotate_dates=True))
+    seen = {}
+    chain._generate = type("Spy", (), {"stream": lambda self, inputs: seen.update(inputs) or iter(["답변"])})()
+    "".join(chain.stream_answer("질문", [_chunk("a", 0.7, title="내년 예산")]))
+    assert "내년(2026년) 예산" in seen["context"]

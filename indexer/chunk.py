@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from common.schema import SOURCE_TIER, DocType
-from indexer.dates import annotate_relative_dates
+from common.dates import annotate_relative_dates
 
 # 문단 → 줄 → 문장 → 쉼표 → 공백 순으로 자를 곳을 찾는다. 문장부호는 앞 문장에 붙여 둔다.
 SEPARATORS = ["\n\n", "\n", ". ", "? ", "! ", ", ", " ", ""]
@@ -33,7 +33,7 @@ class ChunkConfig:
     chunk_size: int
     chunk_overlap: int
     include_title: bool = True
-    # 상대 날짜('내년', '내일')에 발행일 기준 날짜를 덧붙인다 (indexer/dates.py). 메타데이터 title 은 원문 그대로
+    # 상대 날짜('내년', '내일')에 발행일 기준 날짜를 덧붙인다 (common/dates.py). 메타데이터 title 은 원문 그대로
     normalize_dates: bool = False
     # 문서 종류별로 다른 (chunk_size, chunk_overlap) 을 적용할 때 사용한다
     overrides: dict[DocType, tuple[int, int]] = field(default_factory=dict)

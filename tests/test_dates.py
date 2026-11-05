@@ -3,7 +3,7 @@ from dataclasses import replace
 import pytest
 
 from indexer.chunk import chunk_document, get_chunk_config
-from indexer.dates import annotate_relative_dates
+from common.dates import annotate_relative_dates
 from tests.test_chunk_embed import _source
 
 

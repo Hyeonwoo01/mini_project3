@@ -472,6 +472,9 @@ def main() -> None:
     parser.add_argument("--prompt-version", choices=PROMPT_VERSIONS,
                         help=f"답변 생성 시스템 프롬프트 버전 (기본: {DEFAULT_PROMPT_VERSION}, rag/prompts.py)")
     parser.add_argument("--seed", type=int, help="LLM seed (OpenAI 재현성 옵션, 반복 실행 변동 확인용)")
+    parser.add_argument("--annotate-dates", action=argparse.BooleanOptionalAction, default=None,
+                        help="답변 근거 청크의 상대 날짜에 발행일 기준 날짜를 덧붙인다 (기본: rag.chain.DEFAULT_ANNOTATE_DATES). "
+                             "검색에는 영향이 없다")
     parser.add_argument("--decompose", action=argparse.BooleanOptionalAction, default=None,
                         help="비교 질문을 대상별 질의로 나눠 검색 (rag/decompose.py, 기본: rag.chain.DEFAULT_DECOMPOSE). "
                              "검색 평가에도 적용된다. 분해 채택 전 실험은 --no-decompose 로 재현한다")
@@ -494,6 +497,8 @@ def main() -> None:
     decompose = DEFAULT_DECOMPOSE if args.decompose is None else args.decompose
     if (args.prompt_version or args.seed is not None) and not (args.with_answers or decompose):
         parser.error("--prompt-version, --seed 는 --with-answers 와 함께 쓴다 (답변 생성 설정)")
+    if args.annotate_dates is not None and not args.with_answers:
+        parser.error("--annotate-dates 는 --with-answers 와 함께 쓴다 (답변 근거 설정)")
 
     items = load_eval_set(settings.eval_set_path)
     if not items:
@@ -517,7 +522,8 @@ def main() -> None:
     chain: RagChain | None = None
     if args.with_answers or decompose:
         try:
-            chain = get_chain(collection, mode, args.context_chunks, args.prompt_version, args.seed, decompose)
+            chain = get_chain(collection, mode, args.context_chunks, args.prompt_version, args.seed, decompose,
+                              args.annotate_dates)
         except RuntimeError as exc:
             raise SystemExit(str(exc)) from exc
     # 질문 분해는 체인이 감싼 검색기에 있으므로 검색 평가도 그 검색기로 한다 (답변과 같은 하위 질의, 캐시 공유)
@@ -541,7 +547,7 @@ def main() -> None:
         "chain": {"top_k": chain.config.top_k, "min_score": chain.config.min_score,
                   "context_chunks": chain.config.context_chunks, "chat_model": settings.chat_model,
                   "prompt_version": chain.config.prompt_version, "seed": args.seed,
-                  "decompose": chain.config.decompose} if chain else None,
+                  "decompose": chain.config.decompose, "annotate_dates": chain.config.annotate_dates} if chain else None,
         "evaluated_at": datetime.now().isoformat(timespec="seconds"),
     }
     out = save_results(records, summary, config, args.tag, settings.eval_results_dir)

@@ -31,7 +31,7 @@ from common.docstore import open_db
 from common.embeddings import get_embedding_model
 from common.schema import DocType
 from indexer.chunk import Chunk, ChunkConfig, ChunkSource, chunk_document
-from indexer.dates import annotate_relative_dates
+from common.dates import annotate_relative_dates
 
 ADD_BATCH = 256                 # 한 번에 임베딩·적재하는 청크 수
 PROGRESS_EVERY_SEC = 30         # 진행 상황 출력 간격 (멈춤을 바로 알아챌 수 있게)

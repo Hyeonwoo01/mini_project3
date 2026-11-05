@@ -31,6 +31,7 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_openai import ChatOpenAI
 
 from common.config import get_settings, require_env
+from common.dates import annotate_relative_dates
 from rag.decompose import DecomposingRetriever, QueryDecomposer
 from rag.prompts import DEFAULT_PROMPT_VERSION, REFUSAL_MESSAGE, SYSTEM_PROMPTS, USER_PROMPT_TEMPLATE
 from rag.retriever import RetrievedChunk, Retriever, SearchFilters
@@ -42,6 +43,9 @@ MAX_HISTORY_TURNS = 3
 # 비교 질문 분해 (rag/decompose.py). v2 채택: 비교 문항 양쪽 근거 포함 all@5 0.40 → 0.60, 정답률 57.3 → 61.5%
 # (README 실험 기록). 비교 표현이 없는 질문은 분해하지 않아 LLM 호출·응답 시간이 그대로다
 DEFAULT_DECOMPOSE = True
+# 답변 근거 청크의 상대 날짜('내일부터')에 발행일 기준 날짜를 덧붙인다 (common/dates.py). 검색은 바꾸지 않는다.
+# 실험 중 (README 실험 기록 '상대 날짜를 답변 근거에만')
+DEFAULT_ANNOTATE_DATES = False
 _CITATION = re.compile(r"\[(\d{1,2})\]")
 
 
@@ -52,6 +56,7 @@ class ChainConfig:
     context_chunks: int = 1   # 임계값을 통과한 문서마다 근거로 넣는 청크 수 (서비스 기본값은 설정 RAG_CONTEXT_CHUNKS)
     prompt_version: str = DEFAULT_PROMPT_VERSION   # rag.prompts.SYSTEM_PROMPTS 의 키
     decompose: bool = DEFAULT_DECOMPOSE   # 비교 질문을 대상별 질의로 나눠 검색 (LLM 호출 1회 추가)
+    annotate_dates: bool = DEFAULT_ANNOTATE_DATES   # 근거 청크의 상대 날짜에 날짜를 덧붙여 프롬프트에 넣는다
 
     def __post_init__(self) -> None:
         if self.top_k < 1 or not 0.0 <= self.min_score < 1.0 or not 1 <= self.context_chunks <= 3:
@@ -85,14 +90,16 @@ def cited_numbers(answer: str, n_chunks: int) -> list[int]:
     return seen
 
 
-def format_context(chunks: Sequence[RetrievedChunk]) -> str:
-    """번호·제목·발행처·출처 종류·발행일을 붙인 근거 목록. 번호가 답변의 [n] 이 된다."""
+def format_context(chunks: Sequence[RetrievedChunk], annotate_dates: bool = False) -> str:
+    """번호·제목·발행처·출처 종류·발행일을 붙인 근거 목록. 번호가 답변의 [n] 이 된다.
+    annotate_dates 이면 본문의 상대 날짜에 발행일 기준 날짜를 덧붙인다 ('내일부터' → '내일(2025년 2월 21일)부터')."""
     blocks = []
     for number, chunk in enumerate(chunks, start=1):
         meta = chunk.metadata
         published = str(meta.get("published_at", ""))[:10] or "발행일 미상"
         header = f"[{number}] {meta.get('title', '')} | {meta.get('source', '')} | {meta.get('source_tier', '')} | {published}"
-        blocks.append(f"{header}\n{chunk.text}")
+        text = annotate_relative_dates(chunk.text, meta.get("published_at"))[0] if annotate_dates else chunk.text
+        blocks.append(f"{header}\n{text}")
     return "\n\n".join(blocks)
 
 
@@ -145,7 +152,7 @@ class RagChain:
             return
         yield from self._generate.stream({
             "history": _history_messages(history),
-            "context": format_context(chunks),
+            "context": format_context(chunks, self.config.annotate_dates),
             "question": question,
             "today": date.today().isoformat(),
         })
@@ -175,7 +182,8 @@ def get_chat_model(seed: int | None = None) -> BaseChatModel:
 
 @lru_cache(maxsize=4)
 def get_chain(collection: str | None = None, mode: str | None = None, context_chunks: int | None = None,
-              prompt_version: str | None = None, seed: int | None = None, decompose: bool | None = None) -> RagChain:
+              prompt_version: str | None = None, seed: int | None = None, decompose: bool | None = None,
+              annotate_dates: bool | None = None) -> RagChain:
     """설정(CHROMA_COLLECTION, RAG_RETRIEVAL_MODE, RAG_TOP_K, RAG_MIN_SCORE, RAG_CONTEXT_CHUNKS)을 쓰는 체인.
     챗봇·평가 하네스가 공유한다. 인자를 주면 그 값이 설정보다 우선한다 (평가 실험용).
     프롬프트 버전은 설정이 아닌 코드(rag.prompts.DEFAULT_PROMPT_VERSION)로 관리한다."""
@@ -183,7 +191,8 @@ def get_chain(collection: str | None = None, mode: str | None = None, context_ch
     config = ChainConfig(top_k=settings.rag_top_k, min_score=settings.rag_min_score,
                          context_chunks=context_chunks or settings.rag_context_chunks,
                          prompt_version=prompt_version or DEFAULT_PROMPT_VERSION,
-                         decompose=DEFAULT_DECOMPOSE if decompose is None else decompose)
+                         decompose=DEFAULT_DECOMPOSE if decompose is None else decompose,
+                         annotate_dates=DEFAULT_ANNOTATE_DATES if annotate_dates is None else annotate_dates)
     return RagChain(
         retriever=Retriever(collection or settings.chroma_collection, mode=mode or settings.rag_retrieval_mode),
         llm=get_chat_model(seed),
