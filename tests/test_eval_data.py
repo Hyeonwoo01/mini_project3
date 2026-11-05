@@ -214,3 +214,15 @@ def test_status_and_monthly_tables():
 def test_setting_frames_rejects_unknown_question_set():
     with pytest.raises(ValueError):
         ed.setting_frames(RESULTS, ANSWER_SETTINGS[0], "everything")
+
+
+def test_law_experiment_matches_readme():
+    """법령 추가: 기존 34문항 67.6% (3회 같음, 등급이 낮아진 문항 없음), 법령 문항 정확 0/12 → 6/12 (f032·f033)."""
+    kb3, kb4 = ed.common_questions(ed.setting_frames(RESULTS, _setting("kb3"), "all"),
+                                   ed.setting_frames(RESULTS, _setting("kb4"), "all"))
+    assert [ed.setting_summary([f])["accuracy"].iloc[0] for f in kb4] == [pytest.approx(23 / 34, abs=1e-3)] * 3
+    assert (ed.grade_matrix({"법령": kb4, "보고서": kb3})["score_gap"] >= 0).all()
+    laws = ed.setting_frames(RESULTS, _setting("kb4"), "law")
+    without = ed.setting_frames(RESULTS, _setting("kb4-nolaw"), "law")
+    assert [list(f.set_index("id").loc[["f032", "f033"], "grade"]) for f in laws] == [["정확", "정확"]] * 3
+    assert all((f["grade"] != "정확").all() for f in without)

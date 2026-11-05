@@ -33,7 +33,7 @@ from common.config import get_settings
 from common.docstore import document_status_counts, kept_documents_by_month, open_db
 
 PAGE_TITLE = "평가 결과"
-PAGE_CAPTION = ("평가셋 v2.2 · 답변 가능 34문항 (뉴스 문항 24 + 1차 자료 문항 8 + 보고서 문항 2) · 답변 불가 6문항 · "
+PAGE_CAPTION = ("평가셋 v2.3 · 답변 가능 38문항 (뉴스 문항 24 + 1차 자료 문항 8 + 보고서 문항 2 + 법령 문항 4) · 답변 불가 6문항 · "
                 "답변은 직접 채점")
 PAGE_MAX_WIDTH = 1440
 VIEWS = ("요약", "검색 실험", "답변 품질", "거절 임계값", "지식베이스")
@@ -123,7 +123,7 @@ def render_overview(results_dir: Path) -> None:
     st.html(ui.hero_html(
         "답변 정답률",
         _pct(all_scores["accuracy"]),
-        f"채택 설정(하이브리드 검색 + 1차 자료·연구기관 보고서, 문서당 청크 2개, 프롬프트 v1, 비교 질문 분해) · "
+        f"채택 설정(하이브리드 검색 + 1차 자료·연구기관 보고서·법령, 문서당 청크 2개, 프롬프트 v1, 비교 질문 분해) · "
         f"답변 가능 {int(ed.setting_summary(answer_frames(root, adopted.key, 'all'))['answerable'].iloc[0])}문항 · 3회 평균 "
         f"(실행별 {_pct(all_scores['accuracy_min'])} ~ {_pct(all_scores['accuracy_max'])}) · "
         f"부분 정답 포함 {_pct(all_scores['accuracy_with_partial'])}",

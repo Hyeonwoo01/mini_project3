@@ -12,7 +12,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from app.experiments import PRIMARY_QUESTION_IDS, REPORT_QUESTION_IDS, AnswerSetting, RetrievalComparison, RunRef
+from app.experiments import (LAW_QUESTION_IDS, PRIMARY_QUESTION_IDS, REPORT_QUESTION_IDS, AnswerSetting,
+                             RetrievalComparison, RunRef)
 
 GRADES = ("정확", "부분", "오답")
 GRADE_SCORE = {"정확": 1.0, "부분": 0.5, "오답": 0.0}
@@ -20,7 +21,7 @@ ANSWERABLE_TYPES = ("fact", "temporal", "comparison", "synthesis")
 TYPE_LABELS = {"fact": "사실", "temporal": "시점", "comparison": "비교", "synthesis": "종합", "unanswerable": "답변 불가"}
 METRICS = ("hit@1", "hit@3", "hit@5", "mrr")
 METRIC_LABELS = {"hit@1": "Hit@1", "hit@3": "Hit@3", "hit@5": "Hit@5", "mrr": "MRR"}
-QUESTION_SETS = {"news": "뉴스 문항", "primary": "1차 자료 문항", "report": "보고서 문항", "all": "전체"}
+QUESTION_SETS = {"news": "뉴스 문항", "primary": "1차 자료 문항", "report": "보고서 문항", "law": "법령 문항", "all": "전체"}
 THRESHOLD_GROUPS = ("정답 1위", "정답 2~5위", "정답 못 찾음", "답변 불가")
 DOC_TYPE_ORDER = ("news", "press_release", "announcement", "policy_report", "law", "blog")
 
@@ -118,7 +119,7 @@ def threshold_points(results_dir: Path, run_id: str) -> pd.DataFrame:
 # ---- 답변 ----
 
 def setting_frames(results_dir: Path, setting: AnswerSetting, question_set: str) -> list[pd.DataFrame]:
-    """반복 실행별 채점 표. question_set: news(뉴스 문항) | primary(1차 자료 문항) | report(보고서 문항) | all.
+    """반복 실행별 채점 표. question_set: news(뉴스 문항) | primary(1차 자료 문항) | report(보고서 문항) | law(법령 문항) | all.
     실행 1회분의 결과 폴더들을 이어 붙인 뒤 문항 묶음으로 거른다."""
     if question_set not in QUESTION_SETS:
         raise ValueError(f"알 수 없는 문항 묶음: {question_set!r}")
@@ -128,7 +129,7 @@ def setting_frames(results_dir: Path, setting: AnswerSetting, question_set: str)
         duplicated = sorted(set(frame.loc[frame["id"].duplicated(), "id"]))
         if duplicated:
             raise ValueError(f"{setting.key}: 한 번의 실행에 같은 문항이 두 번 있습니다 ({', '.join(duplicated)})")
-        kind = frame["id"].map(lambda i: "report" if i in REPORT_QUESTION_IDS
+        kind = frame["id"].map(lambda i: "report" if i in REPORT_QUESTION_IDS else "law" if i in LAW_QUESTION_IDS
                                else "primary" if i in PRIMARY_QUESTION_IDS else "news")
         frame = frame.assign(question_set=kind)
         if question_set != "all":

@@ -53,6 +53,8 @@ class AnswerComparison:
 PRIMARY_QUESTION_IDS: frozenset[str] = frozenset({"f021", "f023", "f024", "f026", "f027", "t013", "t014", "c005"})
 # 평가셋 v2.2 에 추가한 연구기관 보고서 문항
 REPORT_QUESTION_IDS: frozenset[str] = frozenset({"f028", "f029"})
+# 평가셋 v2.3 에 추가한 법령 문항
+LAW_QUESTION_IDS: frozenset[str] = frozenset({"f030", "f031", "f032", "f033"})
 
 
 RETRIEVAL_COMPARISONS: tuple[RetrievalComparison, ...] = (
@@ -169,6 +171,23 @@ ANSWER_SETTINGS: tuple[AnswerSetting, ...] = (
             ("20261105-0950_reports2-noreport-r3",),
         ),
     ),
+    AnswerSetting(
+        key="kb4", label="보고서 + 법령", short="법령",
+        repetitions=(
+            ("20261105-1258_hybrid-c500-ctx2-kb4-r1",),
+            ("20261105-1302_hybrid-c500-ctx2-kb4-r2",),
+            ("20261105-1307_hybrid-c500-ctx2-kb4-r3",),
+        ),
+    ),
+    # 법령 문항 4개만, 같은 컬렉션에서 법령을 빼고 검색 (--doc-types news press_release announcement policy_report)
+    AnswerSetting(
+        key="kb4-nolaw", label="법령 제외", short="제외",
+        repetitions=(
+            ("20261105-1309_law-nolaw-r1",),
+            ("20261105-1309_law-nolaw-r2",),
+            ("20261105-1310_law-nolaw-r3",),
+        ),
+    ),
 )
 ANSWER_COMPARISONS: tuple[AnswerComparison, ...] = (
     AnswerComparison(key="primary", title="1차 자료 추가", baseline="news", candidate="kb2",
@@ -186,8 +205,13 @@ ANSWER_COMPARISONS: tuple[AnswerComparison, ...] = (
                      decision="기존 32문항 정답률 변동 범위 안, 검색 회귀 없음 → 보고서 유지", eval_set="v2.1"),
     AnswerComparison(key="reports-q", title="연구기관 보고서 추가 (보고서 문항)", baseline="kb3-noreport", candidate="kb3",
                      decision="f029 오답 → 정확 3회. f028 은 같은 수치를 옮긴 뉴스가 있어 차이 없음", eval_set="v2.2"),
+    AnswerComparison(key="laws", title="법령 추가 (기존 문항)", baseline="kb3", candidate="kb4",
+                     decision="기존 34문항 67.6% (3회 같음, 이전 61.8~67.6%), 등급이 낮아진 문항·검색 회귀 없음 → 법령 유지",
+                     eval_set="v2.2"),
+    AnswerComparison(key="laws-q", title="법령 추가 (법령 문항)", baseline="kb4-nolaw", candidate="kb4",
+                     decision="f032 거절 → 정확 3회, f033 부분 → 정확 3회. f030·f031 은 두 설정 모두 정확 없음", eval_set="v2.3"),
 )
-ADOPTED_ANSWER_SETTING = "kb3"
+ADOPTED_ANSWER_SETTING = "kb4"
 
 # 거절 임계값 근거: 답변 불가 문항까지 포함한 검색 실험 (30문항)
 THRESHOLD_RUNS: tuple[RunRef, ...] = (
