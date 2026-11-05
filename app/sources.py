@@ -25,7 +25,8 @@ DOC_TYPE_LABELS: dict[str, str] = {
     DocType.BLOG: "블로그",
 }
 # 필터에 내놓는 문서 종류 = 현재 지식베이스에 있는 종류 (README '수집 현황')
-FILTERABLE_DOC_TYPES: tuple[DocType, ...] = (DocType.NEWS, DocType.PRESS_RELEASE, DocType.ANNOUNCEMENT)
+FILTERABLE_DOC_TYPES: tuple[DocType, ...] = (DocType.NEWS, DocType.PRESS_RELEASE, DocType.ANNOUNCEMENT,
+                                              DocType.POLICY_REPORT)
 
 # 근거 확장(rag.retriever.merge_chunk_texts)이 떨어진 청크 사이에 넣는 구분자
 PASSAGE_GAP = "\n…\n"
