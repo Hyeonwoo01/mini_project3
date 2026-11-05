@@ -142,6 +142,21 @@ def test_decomposition_v2_experiment_matches_readme():
         rows = frame.set_index("id")
         assert not rows.loc[["t011", "c003"], "refused"].any() and (rows.loc[["t011", "c003"], "grade"] == "오답").all()
 
+
+def test_report_experiment_matches_readme():
+    """보고서 추가: 공통 32문항 정답률 61.5 → 62.5%, 보고서 문항 f029 는 제외 3회 오답 → 포함 3회 정확."""
+    dec, kb3 = ed.common_questions(ed.setting_frames(RESULTS, _setting("kb2-dec2"), "all"),
+                                   ed.setting_frames(RESULTS, _setting("kb3"), "all"))
+    assert ed.mean_scores(ed.setting_summary(dec))["accuracy"] == pytest.approx(0.615, abs=1e-3)
+    assert ed.mean_scores(ed.setting_summary(kb3))["accuracy"] == pytest.approx(0.625, abs=1e-3)
+    assert ed.grade_matrix({"보고서": kb3, "분해": dec})["score_gap"].sum() == pytest.approx(0)
+    reports = ed.setting_frames(RESULTS, _setting("kb3"), "report")
+    without = ed.setting_frames(RESULTS, _setting("kb3-noreport"), "report")
+    assert [list(f.set_index("id").loc[["f028", "f029"], "grade"]) for f in reports] == [["정확", "정확"]] * 3
+    assert [list(f.set_index("id").loc[["f028", "f029"], "grade"]) for f in without] == [["정확", "오답"]] * 3
+    assert ed.mean_scores(ed.setting_summary(ed.setting_frames(RESULTS, _setting("kb3"), "all")))["accuracy"] \
+        == pytest.approx(0.647, abs=1e-3)
+
 def test_answer_latency_is_weighted_by_items():
     latency = ed.answer_latency(RESULTS, _setting("kb2-p2"))
     assert 2000 < latency["mean"] < 3000 and latency["p95"] > latency["mean"]

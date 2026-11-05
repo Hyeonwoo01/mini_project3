@@ -33,7 +33,8 @@ from common.config import get_settings
 from common.docstore import document_status_counts, kept_documents_by_month, open_db
 
 PAGE_TITLE = "평가 결과"
-PAGE_CAPTION = "평가셋 v2.0 · 답변 가능 32문항 (뉴스 문항 24 + 1차 자료 문항 8) · 답변 불가 6문항 · 답변은 직접 채점"
+PAGE_CAPTION = ("평가셋 v2.2 · 답변 가능 34문항 (뉴스 문항 24 + 1차 자료 문항 8 + 보고서 문항 2) · 답변 불가 6문항 · "
+                "답변은 직접 채점")
 PAGE_MAX_WIDTH = 1440
 VIEWS = ("요약", "검색 실험", "답변 품질", "거절 임계값", "지식베이스")
 CACHE_TTL = 600  # 결과 파일은 실험을 돌릴 때만 바뀐다
@@ -122,7 +123,8 @@ def render_overview(results_dir: Path) -> None:
     st.html(ui.hero_html(
         "답변 정답률",
         _pct(all_scores["accuracy"]),
-        f"채택 설정(하이브리드 검색 + 1차 자료, 문서당 청크 2개, 프롬프트 v1, 비교 질문 분해) · 답변 가능 32문항 · 3회 평균 "
+        f"채택 설정(하이브리드 검색 + 1차 자료·연구기관 보고서, 문서당 청크 2개, 프롬프트 v1, 비교 질문 분해) · "
+        f"답변 가능 {int(ed.setting_summary(answer_frames(root, adopted.key, 'all'))['answerable'].iloc[0])}문항 · 3회 평균 "
         f"(실행별 {_pct(all_scores['accuracy_min'])} ~ {_pct(all_scores['accuracy_max'])}) · "
         f"부분 정답 포함 {_pct(all_scores['accuracy_with_partial'])}",
     ))
@@ -165,12 +167,15 @@ def _decision_rows(results_dir: Path) -> list[list[str]]:
         f"출처 정확도 {_pct(ctx[0]['citation_accuracy'])} → {_pct(ctx[1]['citation_accuracy'])}",
         "같은 기사의 세부 청크가 근거에 들어가 문서당 2개 채택",
     ])
-    means = {s.key: ed.mean_scores(ed.setting_summary(answer_frames(root, s.key, "all"))) for s in ANSWER_SETTINGS}
     for comparison in ANSWER_COMPARISONS:
-        base, cand = means[comparison.baseline], means[comparison.candidate]
+        base_frames, cand_frames = ed.common_questions(answer_frames(root, comparison.baseline, "all"),
+                                                       answer_frames(root, comparison.candidate, "all"))
+        base_table, cand_table = ed.setting_summary(base_frames), ed.setting_summary(cand_frames)
+        base, cand = ed.mean_scores(base_table), ed.mean_scores(cand_table)
         rows.append([
-            f"답변 · {comparison.title}", "v2.0",
-            f"{_setting(comparison.baseline).label} → {_setting(comparison.candidate).label} (3회 평균, 32문항)",
+            f"답변 · {comparison.title}", comparison.eval_set,
+            f"{_setting(comparison.baseline).label} → {_setting(comparison.candidate).label} "
+            f"(3회 평균, {int(cand_table['answerable'].iloc[0])}문항)",
             f"정답률 {_pct(base['accuracy'])} → {_pct(cand['accuracy'])}, "
             f"부분 포함 {_pct(base['accuracy_with_partial'])} → {_pct(cand['accuracy_with_partial'])}",
             comparison.decision,
@@ -252,12 +257,17 @@ def render_answers(results_dir: Path) -> None:
     comparison = _answer_comparison(comparison_key or ANSWER_COMPARISONS[0].key)
     question_set = question_set or "all"
     baseline, candidate = _setting(comparison.baseline), _setting(comparison.candidate)
-    base_frames = answer_frames(root, baseline.key, question_set)
-    cand_frames = answer_frames(root, candidate.key, question_set)
+    base_frames, cand_frames = ed.common_questions(answer_frames(root, baseline.key, question_set),
+                                                   answer_frames(root, candidate.key, question_set))
+    if cand_frames[0].empty:
+        st.html(ui.callout_html("이 비교에는 해당 문항이 없습니다",
+                                ["두 설정이 함께 답한 문항만 비교한다. 문항 묶음을 '전체'로 바꿔 보세요."], tone="info"))
+        return
     base_table, cand_table = ed.setting_summary(base_frames), ed.setting_summary(cand_frames)
     base, cand = ed.mean_scores(base_table), ed.mean_scores(cand_table)
     n = int(cand_table["answerable"].iloc[0])
-    st.caption(f"비교: {baseline.label} → {candidate.label} · 답변 가능 {n}문항 · 각 {len(cand_frames)}회 · "
+    st.caption(f"비교: {baseline.label} → {candidate.label} · 평가셋 {comparison.eval_set} · 두 설정이 함께 답한 "
+               f"답변 가능 {n}문항 · 각 {len(cand_frames)}회 · "
                f"결정: {comparison.decision}")
 
     def tile(label: str, metric: str, note: str) -> ui.StatTile:

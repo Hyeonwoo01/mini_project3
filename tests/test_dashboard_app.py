@@ -45,7 +45,24 @@ def test_every_view_renders(view, fake_db):
 
 def test_overview_hero_shows_adopted_accuracy(fake_db):
     at = AppTest.from_function(_script, default_timeout=30).run()
-    assert '<div class="cb-hero__value">61.5%</div>' in _html(at)   # 분해 v2 채택 설정 (README 실험 기록)
+    assert '<div class="cb-hero__value">64.7%</div>' in _html(at)   # 분해 v2 + 보고서, 34문항 (README 실험 기록)
+    assert "답변 가능 34문항 · 3회 평균" in _html(at)
+
+
+@pytest.mark.parametrize(("comparison", "question_set", "expected"), [
+    ("reports", "all", "두 설정이 함께 답한 답변 가능 32문항"),      # 평가셋이 다른 설정은 공통 문항으로 비교
+    ("reports-q", "all", "두 설정이 함께 답한 답변 가능 2문항"),
+    ("reports-q", "report", "두 설정이 함께 답한 답변 가능 2문항"),
+    ("prompt", "report", "이 비교에는 해당 문항이 없습니다"),         # 보고서 문항이 없는 설정끼리
+])
+def test_report_comparisons_use_common_questions(comparison, question_set, expected, fake_db):
+    at = AppTest.from_function(_script, default_timeout=30)
+    at.session_state["dashboard_view"] = "답변 품질"
+    at.session_state["answer_comparison"] = comparison
+    at.session_state["answer_question_set"] = question_set
+    at.run()
+    assert not at.exception, at.exception
+    assert expected in " ".join(str(c.value) for c in at.caption) + _html(at)
 
 
 def test_answer_view_filters_render(fake_db):

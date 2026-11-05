@@ -46,10 +46,13 @@ class AnswerComparison:
     baseline: str
     candidate: str
     decision: str
+    eval_set: str = "v2.0"     # 두 설정이 함께 답한 문항의 평가셋 버전 (비교는 공통 문항으로 한다)
 
 
 # 평가셋 v2.0 에 추가한 1차 자료 문항 (나머지는 뉴스로 만든 문항). 1차 자료 문항 실험의 --ids 와 같다
 PRIMARY_QUESTION_IDS: frozenset[str] = frozenset({"f021", "f023", "f024", "f026", "f027", "t013", "t014", "c005"})
+# 평가셋 v2.2 에 추가한 연구기관 보고서 문항
+REPORT_QUESTION_IDS: frozenset[str] = frozenset({"f028", "f029"})
 
 
 RETRIEVAL_COMPARISONS: tuple[RetrievalComparison, ...] = (
@@ -149,6 +152,23 @@ ANSWER_SETTINGS: tuple[AnswerSetting, ...] = (
             ("20261104-1602_hybrid-c500-ctx2-kb2-dec2-r3",),
         ),
     ),
+    AnswerSetting(
+        key="kb3", label="분해 v2 + 연구기관 보고서", short="보고서",
+        repetitions=(
+            ("20261105-0940_hybrid-c500-ctx2-kb3-r1",),
+            ("20261105-0943_hybrid-c500-ctx2-kb3-r2",),
+            ("20261105-0948_hybrid-c500-ctx2-kb3-r3",),
+        ),
+    ),
+    # 보고서 문항 2개만, 같은 컬렉션에서 보고서를 빼고 검색 (--doc-types news press_release announcement)
+    AnswerSetting(
+        key="kb3-noreport", label="보고서 제외", short="제외",
+        repetitions=(
+            ("20261105-0949_reports2-noreport-r1",),
+            ("20261105-0950_reports2-noreport-r2",),
+            ("20261105-0950_reports2-noreport-r3",),
+        ),
+    ),
 )
 ANSWER_COMPARISONS: tuple[AnswerComparison, ...] = (
     AnswerComparison(key="primary", title="1차 자료 추가", baseline="news", candidate="kb2",
@@ -161,9 +181,13 @@ ANSWER_COMPARISONS: tuple[AnswerComparison, ...] = (
                      decision="실행 간 같은 답변 비율이 그대로 → 변동을 줄이지 못함, 쓰지 않음"),
     AnswerComparison(key="decompose", title="비교 질문 분해 v2", baseline="kb2", candidate="kb2-dec2",
                      decision="비교 정답률 20 → 40%(c002 정확, c001·c004 오답 → 부분), 등급 회귀 없음 → 채택. "
-                              "t011·c003 은 잘못된 거절이 틀린 답으로 바뀜 (한계로 기록)"),
+                              "t011·c003 은 잘못된 거절이 틀린 답으로 바뀜 (한계로 기록)", eval_set="v2.1"),
+    AnswerComparison(key="reports", title="연구기관 보고서 추가 (기존 문항)", baseline="kb2-dec2", candidate="kb3",
+                     decision="기존 32문항 정답률 변동 범위 안, 검색 회귀 없음 → 보고서 유지", eval_set="v2.1"),
+    AnswerComparison(key="reports-q", title="연구기관 보고서 추가 (보고서 문항)", baseline="kb3-noreport", candidate="kb3",
+                     decision="f029 오답 → 정확 3회. f028 은 같은 수치를 옮긴 뉴스가 있어 차이 없음", eval_set="v2.2"),
 )
-ADOPTED_ANSWER_SETTING = "kb2-dec2"
+ADOPTED_ANSWER_SETTING = "kb3"
 
 # 거절 임계값 근거: 답변 불가 문항까지 포함한 검색 실험 (30문항)
 THRESHOLD_RUNS: tuple[RunRef, ...] = (
