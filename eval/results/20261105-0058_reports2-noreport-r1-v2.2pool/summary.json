@@ -1,0 +1,77 @@
+{
+  "config": {
+    "tag": "reports2-noreport-r1-v2.2pool",
+    "collection": "docs__c500",
+    "k": 5,
+    "mode": "hybrid",
+    "hybrid": {
+      "candidates": 50,
+      "rrf_k": 60
+    },
+    "doc_types": [
+      "news",
+      "press_release",
+      "announcement"
+    ],
+    "max_chunks_per_doc": 1,
+    "collapse_same_title": true,
+    "collection_metadata": {
+      "chunk_config": "c500",
+      "created_at": "2026-11-03T05:01:17+00:00",
+      "include_title": true,
+      "chunk_overlap": 100,
+      "chunk_size": 500,
+      "embedding_model": "text-embedding-3-small"
+    },
+    "eval_set_items": 2,
+    "ids": [
+      "f028",
+      "f029"
+    ],
+    "git_commit": "07aa90c",
+    "chain": null,
+    "evaluated_at": "2026-11-05T00:58:08",
+    "rescored_from": "20261105-0949_reports2-noreport-r1"
+  },
+  "overall": {
+    "count": 2,
+    "hit@1": 0.5,
+    "hit@3": 0.5,
+    "hit@5": 0.5,
+    "mrr": 0.5
+  },
+  "by_type": {
+    "fact": {
+      "count": 2,
+      "hit@1": 0.5,
+      "hit@3": 0.5,
+      "hit@5": 0.5,
+      "mrr": 0.5
+    }
+  },
+  "top_score": {
+    "answerable_hit": {
+      "count": 1,
+      "min": 0.721,
+      "median": 0.721,
+      "max": 0.721
+    },
+    "answerable_miss": {
+      "count": 1,
+      "min": 0.529,
+      "median": 0.529,
+      "max": 0.529
+    },
+    "unanswerable": {
+      "count": 0
+    }
+  },
+  "latency_ms": {
+    "mean": 4289.9,
+    "p95": 6134.9
+  },
+  "unanswerable_count": 0,
+  "coverage": {
+    "count": 0
+  }
+}
