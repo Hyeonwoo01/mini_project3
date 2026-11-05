@@ -1,0 +1,121 @@
+{
+  "config": {
+    "tag": "hybrid-c500-ctx2-kb3-dates-r1",
+    "collection": "docs__c500-dates",
+    "k": 5,
+    "mode": "hybrid",
+    "hybrid": {
+      "candidates": 50,
+      "rrf_k": 60
+    },
+    "doc_types": null,
+    "max_chunks_per_doc": 1,
+    "collapse_same_title": true,
+    "collection_metadata": {
+      "embedding_model": "text-embedding-3-small",
+      "include_title": true,
+      "chunk_overlap": 100,
+      "chunk_config": "c500-dates",
+      "chunk_size": 500,
+      "normalize_dates": true,
+      "created_at": "2026-11-05T01:33:32+00:00"
+    },
+    "eval_set_items": 40,
+    "ids": null,
+    "git_commit": "ec3eeee",
+    "chain": {
+      "top_k": 5,
+      "min_score": 0.5,
+      "context_chunks": 2,
+      "chat_model": "gpt-4o-mini",
+      "prompt_version": "v1",
+      "seed": null,
+      "decompose": true
+    },
+    "evaluated_at": "2026-11-05T11:02:13"
+  },
+  "overall": {
+    "count": 34,
+    "hit@1": 0.8529,
+    "hit@3": 0.9412,
+    "hit@5": 0.9706,
+    "mrr": 0.898
+  },
+  "by_type": {
+    "comparison": {
+      "count": 5,
+      "hit@1": 0.4,
+      "hit@3": 0.8,
+      "hit@5": 0.8,
+      "mrr": 0.5667
+    },
+    "fact": {
+      "count": 17,
+      "hit@1": 0.9412,
+      "hit@3": 1,
+      "hit@5": 1,
+      "mrr": 0.9706
+    },
+    "synthesis": {
+      "count": 4,
+      "hit@1": 1,
+      "hit@3": 1,
+      "hit@5": 1,
+      "mrr": 1.0
+    },
+    "temporal": {
+      "count": 8,
+      "hit@1": 0.875,
+      "hit@3": 0.875,
+      "hit@5": 1,
+      "mrr": 0.9
+    }
+  },
+  "top_score": {
+    "answerable_hit": {
+      "count": 29,
+      "min": 0.4901,
+      "median": 0.665,
+      "max": 0.7316
+    },
+    "answerable_miss": {
+      "count": 1,
+      "min": 0.6628,
+      "median": 0.6628,
+      "max": 0.6628
+    },
+    "unanswerable": {
+      "count": 6,
+      "min": 0.4472,
+      "median": 0.5663,
+      "max": 0.6771
+    }
+  },
+  "latency_ms": {
+    "mean": 841.9,
+    "p95": 2316.7
+  },
+  "unanswerable_count": 6,
+  "coverage": {
+    "count": 5,
+    "cover@3": 0.5,
+    "cover@5": 0.6,
+    "all@3": 0.2,
+    "all@5": 0.4
+  },
+  "answers": {
+    "refusal_accuracy": 1.0,
+    "false_refusal_rate": 0.0588,
+    "citation_rate": 1.0,
+    "cited_gold_rate_auto": 0.9375,
+    "counts": {
+      "answerable": 34,
+      "unanswerable": 6,
+      "answered": 32
+    },
+    "latency_ms": {
+      "mean": 2694.4,
+      "p95": 5281.9
+    }
+  }
+}
