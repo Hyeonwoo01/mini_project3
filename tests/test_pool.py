@@ -105,7 +105,7 @@ def test_write_fulltext_uses_clean_text_and_reports_missing(tmp_path):
         upsert_documents(conn, [DocumentRecord(doc_id="kr_1", doc_type=DocType.PRESS_RELEASE, source="행정안전부",
                                                title="개정안 국회 통과", url="https://x/1", published_at="2025-08-04",
                                                collected_at="2026-11-05", collect_method=CollectMethod.CRAWL)])
-        replace_processed_documents(conn, [ProcessedRecord(doc_id="kr_1", status="kept", processed_at="2026-11-05",
+        replace_processed_documents(conn, [ProcessedRecord(doc_id="kr_1", status="kept", processed_at="2026-11-05", canonical_doc_id="kr_1",
                                                            clean_text="매년 보조금 예산 신청을 받아 반영한다.")])
     out = tmp_path / "full.md"
     with open_db(db, read_only=True) as conn:
