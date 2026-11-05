@@ -1,0 +1,125 @@
+{
+  "config": {
+    "tag": "holdout-diag-law-only",
+    "collection": "docs__c500",
+    "k": 5,
+    "mode": "hybrid",
+    "hybrid": {
+      "candidates": 50,
+      "rrf_k": 60
+    },
+    "doc_types": [
+      "law"
+    ],
+    "max_chunks_per_doc": 1,
+    "collapse_same_title": true,
+    "collection_metadata": {
+      "chunk_size": 500,
+      "chunk_config": "c500",
+      "include_title": true,
+      "chunk_overlap": 100,
+      "created_at": "2026-11-03T05:01:17+00:00",
+      "embedding_model": "text-embedding-3-small"
+    },
+    "eval_set_items": 14,
+    "eval_set": "holdout.jsonl",
+    "ids": null,
+    "git_commit": "87e4d6b",
+    "chain": {
+      "top_k": 5,
+      "min_score": 0.5,
+      "context_chunks": 2,
+      "chat_model": "gpt-4o-mini",
+      "prompt_version": "v1",
+      "seed": null,
+      "decompose": true,
+      "annotate_dates": false
+    },
+    "evaluated_at": "2026-11-05T14:47:42"
+  },
+  "overall": {
+    "count": 12,
+    "hit@1": 0.1667,
+    "hit@3": 0.25,
+    "hit@5": 0.25,
+    "mrr": 0.1944
+  },
+  "by_type": {
+    "comparison": {
+      "count": 2,
+      "hit@1": 0,
+      "hit@3": 0.5,
+      "hit@5": 0.5,
+      "mrr": 0.1667
+    },
+    "fact": {
+      "count": 7,
+      "hit@1": 0.2857,
+      "hit@3": 0.2857,
+      "hit@5": 0.2857,
+      "mrr": 0.2857
+    },
+    "synthesis": {
+      "count": 1,
+      "hit@1": 0,
+      "hit@3": 0,
+      "hit@5": 0,
+      "mrr": 0.0
+    },
+    "temporal": {
+      "count": 2,
+      "hit@1": 0,
+      "hit@3": 0,
+      "hit@5": 0,
+      "mrr": 0.0
+    }
+  },
+  "top_score": {
+    "answerable_hit": {
+      "count": 2,
+      "min": 0.5373,
+      "median": 0.6156,
+      "max": 0.6939
+    },
+    "answerable_miss": {
+      "count": 9,
+      "min": 0.2637,
+      "median": 0.3993,
+      "max": 0.5265
+    },
+    "unanswerable": {
+      "count": 2,
+      "min": 0.4586,
+      "median": 0.4958,
+      "max": 0.533
+    }
+  },
+  "latency_ms": {
+    "mean": 706.5,
+    "p95": 2289.9
+  },
+  "unanswerable_count": 2,
+  "coverage": {
+    "count": 2,
+    "cover@3": 0.25,
+    "cover@5": 0.25,
+    "all@3": 0,
+    "all@5": 0
+  },
+  "coverage_by_type": {
+    "comparison": {
+      "count": 2,
+      "cover@3": 0.25,
+      "cover@5": 0.25,
+      "all@3": 0,
+      "all@5": 0
+    },
+    "synthesis": {
+      "count": 1,
+      "cover@3": 0.0,
+      "cover@5": 0.0,
+      "all@3": 0,
+      "all@5": 0
+    }
+  }
+}
