@@ -32,7 +32,7 @@ import subprocess
 import time
 from collections import Counter, defaultdict
 from collections.abc import Collection, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from statistics import mean, median
@@ -456,7 +456,8 @@ def rescore(source: Path, tag: str, settings) -> Path:
         items = [item for item in items if item.id in set(old["config"]["ids"])]
     rescored = rescore_records(records, items, k)
     summary = summarize(rescored, k)
-    config = {**old["config"], "tag": tag, "eval_set_items": len(items), "git_commit": _git_commit(),
+    config = {**old["config"], "tag": tag, "eval_set_items": len(items), "eval_set": settings.eval_set_path.name,
+              "git_commit": _git_commit(),
               "rescored_from": source.name, "chain": None, "evaluated_at": datetime.now().isoformat(timespec="seconds")}
     out = save_results(rescored, summary, config, tag, settings.eval_results_dir)
     print(format_summary(summary, k))
@@ -484,12 +485,18 @@ def main() -> None:
                         help="비교 질문을 대상별 질의로 나눠 검색 (rag/decompose.py, 기본: rag.chain.DEFAULT_DECOMPOSE). "
                              "검색 평가에도 적용된다. 분해 채택 전 실험은 --no-decompose 로 재현한다")
     parser.add_argument("--rescore", type=Path, help="저장된 검색 결과(eval/results/...)를 현재 정답 목록으로 다시 채점")
+    parser.add_argument("--eval-set", type=Path,
+                        help="평가셋 파일 (기본: eval/eval_set.jsonl). 평가셋 밖 문항은 eval/holdout.jsonl")
     parser.add_argument("--ids", nargs="+", metavar="ID",
                         help="이 문항만 평가한다 (예: f021 t013). 일부 문항의 반복 실행 비교에 쓴다")
     parser.add_argument("--doc-types", nargs="+", choices=[t.value for t in DocType], metavar="TYPE",
                         help="이 문서 종류만 검색한다 (예: news). 같은 컬렉션에서 1차 자료를 뺀 비교 실험에 쓴다")
     args = parser.parse_args()
     settings = get_settings()
+    if args.eval_set:
+        if not args.eval_set.is_file():
+            parser.error(f"평가셋 파일이 없습니다: {args.eval_set}")
+        settings = replace(settings, eval_set_path=args.eval_set.resolve())
     if args.check:
         raise SystemExit(1 if check_eval_set(settings.eval_set_path) else 0)
     if not args.tag:
@@ -548,7 +555,8 @@ def main() -> None:
         "doc_types": list(args.doc_types) if args.doc_types else None,
         "max_chunks_per_doc": retriever.max_chunks_per_doc, "collapse_same_title": retriever.collapse_same_title,
         "collection_metadata": retriever.collection_metadata,
-        "eval_set_items": len(items), "ids": list(args.ids) if args.ids else None, "git_commit": _git_commit(),
+        "eval_set_items": len(items), "eval_set": settings.eval_set_path.name,
+        "ids": list(args.ids) if args.ids else None, "git_commit": _git_commit(),
         "chain": {"top_k": chain.config.top_k, "min_score": chain.config.min_score,
                   "context_chunks": chain.config.context_chunks, "chat_model": settings.chat_model,
                   "prompt_version": chain.config.prompt_version, "seed": args.seed,
