@@ -32,7 +32,7 @@ from langchain_openai import ChatOpenAI
 
 from common.config import get_settings, require_env
 from common.dates import annotate_relative_dates
-from rag.decompose import DecomposingRetriever, QueryDecomposer
+from rag.decompose import DECOMPOSE_VERSIONS, DEFAULT_DECOMPOSE_VERSION, DecomposingRetriever, QueryDecomposer
 from rag.prompts import DEFAULT_PROMPT_VERSION, REFUSAL_MESSAGE, SYSTEM_PROMPTS, USER_PROMPT_TEMPLATE
 from rag.retriever import RetrievedChunk, Retriever, SearchFilters
 
@@ -56,6 +56,7 @@ class ChainConfig:
     context_chunks: int = 1   # 임계값을 통과한 문서마다 근거로 넣는 청크 수 (서비스 기본값은 설정 RAG_CONTEXT_CHUNKS)
     prompt_version: str = DEFAULT_PROMPT_VERSION   # rag.prompts.SYSTEM_PROMPTS 의 키
     decompose: bool = DEFAULT_DECOMPOSE   # 비교 질문을 대상별 질의로 나눠 검색 (LLM 호출 1회 추가)
+    decompose_version: str = DEFAULT_DECOMPOSE_VERSION   # rag.decompose.DECOMPOSE_VERSIONS (v3: 입장별 분해, 실험 중)
     annotate_dates: bool = DEFAULT_ANNOTATE_DATES   # 근거 청크의 상대 날짜에 날짜를 덧붙여 프롬프트에 넣는다
 
     def __post_init__(self) -> None:
@@ -63,6 +64,8 @@ class ChainConfig:
             raise ValueError(f"잘못된 체인 설정: {self}")
         if self.prompt_version not in SYSTEM_PROMPTS:
             raise ValueError(f"알 수 없는 프롬프트 버전: {self.prompt_version!r} (가능: {', '.join(SYSTEM_PROMPTS)})")
+        if self.decompose_version not in DECOMPOSE_VERSIONS:
+            raise ValueError(f"알 수 없는 분해 버전: {self.decompose_version!r} (가능: {', '.join(DECOMPOSE_VERSIONS)})")
 
 
 @dataclass(frozen=True)
@@ -124,7 +127,8 @@ def retrieval_query(question: str, history: ChatHistory) -> str:
 class RagChain:
     def __init__(self, retriever: Retriever, llm: BaseChatModel, config: ChainConfig) -> None:
         # 분해 검색기는 체인 안에서 감싼다: 평가 하네스의 검색 평가도 chain.retriever 로 같은 경로를 탄다
-        self.retriever = DecomposingRetriever(retriever, QueryDecomposer(llm)) if config.decompose else retriever
+        self.retriever = DecomposingRetriever(
+            retriever, QueryDecomposer(llm, version=config.decompose_version)) if config.decompose else retriever
         self.config = config
         prompt = ChatPromptTemplate.from_messages([
             ("system", SYSTEM_PROMPTS[config.prompt_version]),
@@ -183,7 +187,7 @@ def get_chat_model(seed: int | None = None) -> BaseChatModel:
 @lru_cache(maxsize=4)
 def get_chain(collection: str | None = None, mode: str | None = None, context_chunks: int | None = None,
               prompt_version: str | None = None, seed: int | None = None, decompose: bool | None = None,
-              annotate_dates: bool | None = None) -> RagChain:
+              annotate_dates: bool | None = None, decompose_version: str | None = None) -> RagChain:
     """설정(CHROMA_COLLECTION, RAG_RETRIEVAL_MODE, RAG_TOP_K, RAG_MIN_SCORE, RAG_CONTEXT_CHUNKS)을 쓰는 체인.
     챗봇·평가 하네스가 공유한다. 인자를 주면 그 값이 설정보다 우선한다 (평가 실험용).
     프롬프트 버전은 설정이 아닌 코드(rag.prompts.DEFAULT_PROMPT_VERSION)로 관리한다."""
@@ -192,7 +196,8 @@ def get_chain(collection: str | None = None, mode: str | None = None, context_ch
                          context_chunks=context_chunks or settings.rag_context_chunks,
                          prompt_version=prompt_version or DEFAULT_PROMPT_VERSION,
                          decompose=DEFAULT_DECOMPOSE if decompose is None else decompose,
-                         annotate_dates=DEFAULT_ANNOTATE_DATES if annotate_dates is None else annotate_dates)
+                         annotate_dates=DEFAULT_ANNOTATE_DATES if annotate_dates is None else annotate_dates,
+                         decompose_version=decompose_version or DEFAULT_DECOMPOSE_VERSION)
     return RagChain(
         retriever=Retriever(collection or settings.chroma_collection, mode=mode or settings.rag_retrieval_mode),
         llm=get_chat_model(seed),

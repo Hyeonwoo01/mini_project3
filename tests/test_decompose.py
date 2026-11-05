@@ -5,7 +5,9 @@ from rag.decompose import (
     DecomposingRetriever,
     QueryDecomposer,
     fill_missing_targets,
+    DECOMPOSE_PROMPTS,
     looks_like_comparison,
+    needs_decomposition,
     parse_queries,
     sub_queries,
 )
@@ -43,6 +45,9 @@ class CountingDecomposer:
     def decompose(self, question):
         self.calls += 1
         return self.plan.get(question, [question])
+
+    def should_decompose(self, question):
+        return needs_decomposition(question, "v2")
 
 
 def test_parse_queries_accepts_json_with_surrounding_text():
@@ -150,3 +155,52 @@ def test_decompose_is_default_and_skips_llm_for_non_comparison_questions():
     chain = RagChain(inner, llm, ChainConfig(top_k=5, min_score=0.5))
     assert isinstance(chain.retriever, DecomposingRetriever)
     assert [c.doc_id for c in chain.retriever.retrieve("C 사업 지원 금액은?", k=5)] == ["c1"]
+
+
+def test_stance_cues_only_in_v3():
+    stance = "고유가 피해지원금의 골목상권 효과에 대해 어떤 긍정적 평가와 한계 지적이 있나?"
+    assert not needs_decomposition(stance, "v2") and needs_decomposition(stance, "v3")
+    assert needs_decomposition("민생회복 소비쿠폰의 소비 진작 효과에 대해 어떤 긍정적 평가와 비판이 있나?", "v3")
+    assert needs_decomposition("규제 완화를 두고 찬반이 엇갈린 이유는?", "v3")
+    for plain in ("상생페이백 11월분 지급 금액과 지급 인원은?", "폐업 소상공인 지원 성과는?",
+                  "온누리상품권 부정유통이 적발되면 과징금은 최대 얼마인가?"):
+        assert not needs_decomposition(plain, "v3")
+    # 비교 표현은 두 버전 모두 분해한다
+    assert needs_decomposition("A와 B 는 어떻게 다른가?", "v2") and needs_decomposition("A와 B 는 어떻게 다른가?", "v3")
+
+
+def test_v3_prompt_extends_v2_with_stance_rule():
+    v2, v3 = DECOMPOSE_PROMPTS["v2"], DECOMPOSE_PROMPTS["v3"]
+    assert v3.startswith(v2.split("5. 질의는 최대 3개다.")[0]) and "입장마다 질의를 하나씩" in v3
+    assert "입장마다" not in v2
+    # 프롬프트 템플릿으로 쓰이므로 중괄호가 이스케이프돼 있어야 한다
+    from langchain_core.prompts import ChatPromptTemplate
+    assert ChatPromptTemplate.from_messages([("system", v3), ("human", "{question}")]).input_variables == ["question"]
+
+
+def test_v3_decomposer_splits_stance_question_and_records_sub_queries():
+    question = "D 제도의 효과에 대해 어떤 긍정적 평가와 비판이 있나?"
+    inner = FakeRetriever({question: [_chunk("p1"), _chunk("p2")],
+                           "D 효과 긍정": [_chunk("p1")], "D 효과 비판": [_chunk("n1")]})
+    llm = FakeListChatModel(responses=['{"queries": ["D 효과 긍정", "D 효과 비판"]}'])
+    retriever = DecomposingRetriever(inner, QueryDecomposer(llm, version="v3"))
+    result = retriever.retrieve(question, k=5)
+    assert [c.doc_id for c in result] == ["p1", "p2", "n1"]
+    assert retriever.last_sub_queries == ["D 효과 긍정", "D 효과 비판"]
+    assert retriever.retrieve("D 제도 지원 금액은?", k=5) == [] and retriever.last_sub_queries == []
+
+
+def test_v2_decomposer_leaves_stance_question_alone():
+    question = "D 제도의 효과에 대해 어떤 긍정적 평가와 비판이 있나?"
+    inner = FakeRetriever({question: [_chunk("p1")]})
+    retriever = DecomposingRetriever(inner, QueryDecomposer(FakeListChatModel(responses=[])))
+    assert [c.doc_id for c in retriever.retrieve(question, k=5)] == ["p1"]
+    assert retriever.last_sub_queries == []
+
+
+def test_chain_config_rejects_unknown_decompose_version():
+    import pytest
+    with pytest.raises(ValueError):
+        ChainConfig(decompose_version="v9")
+    with pytest.raises(ValueError):
+        QueryDecomposer(FakeListChatModel(responses=[]), version="v9")

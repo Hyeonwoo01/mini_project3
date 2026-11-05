@@ -42,6 +42,7 @@ from common.config import PROJECT_ROOT, RETRIEVAL_MODES, get_settings
 from common.docstore import open_db
 from common.schema import DocType
 from rag.chain import DEFAULT_DECOMPOSE, RagChain, RagResult, get_chain
+from rag.decompose import DECOMPOSE_VERSIONS, DEFAULT_DECOMPOSE_VERSION
 from rag.prompts import DEFAULT_PROMPT_VERSION, PROMPT_VERSIONS
 from rag.retriever import HYBRID_CANDIDATES, RRF_K, RetrievedChunk, Retriever, SearchFilters
 
@@ -234,6 +235,9 @@ def evaluate_retrieval(items: Sequence[EvalItem], retriever: SupportsRetrieve, k
             "top_score": round(max(c.score for c in chunks), 4) if chunks else None,
             "latency_ms": round(latency_ms, 1),
         }
+        sub = getattr(retriever, "last_sub_queries", None)
+        if sub:
+            record["sub_queries"] = list(sub)   # 질문 분해의 하위 질의 (보강 문서가 없어도 남긴다)
         record.update(_retrieval_metrics(item, ranked, k))
         records.append(record)
     return records
@@ -484,6 +488,9 @@ def main() -> None:
     parser.add_argument("--decompose", action=argparse.BooleanOptionalAction, default=None,
                         help="비교 질문을 대상별 질의로 나눠 검색 (rag/decompose.py, 기본: rag.chain.DEFAULT_DECOMPOSE). "
                              "검색 평가에도 적용된다. 분해 채택 전 실험은 --no-decompose 로 재현한다")
+    parser.add_argument("--decompose-version", choices=DECOMPOSE_VERSIONS,
+                        help=f"질문 분해 버전 (기본: {DEFAULT_DECOMPOSE_VERSION}). v3 는 입장 대조 질문(긍정 평가와 비판 등)을 "
+                             "입장별로 나눈다 (rag/decompose.py)")
     parser.add_argument("--rescore", type=Path, help="저장된 검색 결과(eval/results/...)를 현재 정답 목록으로 다시 채점")
     parser.add_argument("--eval-set", type=Path,
                         help="평가셋 파일 (기본: eval/eval_set.jsonl). 평가셋 밖 문항은 eval/holdout.jsonl")
@@ -509,6 +516,8 @@ def main() -> None:
     decompose = DEFAULT_DECOMPOSE if args.decompose is None else args.decompose
     if (args.prompt_version or args.seed is not None) and not (args.with_answers or decompose):
         parser.error("--prompt-version, --seed 는 --with-answers 와 함께 쓴다 (답변 생성 설정)")
+    if args.decompose_version and not decompose:
+        parser.error("--decompose-version 은 --no-decompose 와 함께 쓸 수 없다")
     if args.annotate_dates is not None and not args.with_answers:
         parser.error("--annotate-dates 는 --with-answers 와 함께 쓴다 (답변 근거 설정)")
 
@@ -535,7 +544,7 @@ def main() -> None:
     if args.with_answers or decompose:
         try:
             chain = get_chain(collection, mode, args.context_chunks, args.prompt_version, args.seed, decompose,
-                              args.annotate_dates)
+                              args.annotate_dates, args.decompose_version)
         except RuntimeError as exc:
             raise SystemExit(str(exc)) from exc
     # 질문 분해는 체인이 감싼 검색기에 있으므로 검색 평가도 그 검색기로 한다 (답변과 같은 하위 질의, 캐시 공유)
@@ -560,7 +569,9 @@ def main() -> None:
         "chain": {"top_k": chain.config.top_k, "min_score": chain.config.min_score,
                   "context_chunks": chain.config.context_chunks, "chat_model": settings.chat_model,
                   "prompt_version": chain.config.prompt_version, "seed": args.seed,
-                  "decompose": chain.config.decompose, "annotate_dates": chain.config.annotate_dates} if chain else None,
+                  "decompose": chain.config.decompose,
+                  "decompose_version": chain.config.decompose_version if chain.config.decompose else None,
+                  "annotate_dates": chain.config.annotate_dates} if chain else None,
         "evaluated_at": datetime.now().isoformat(timespec="seconds"),
     }
     out = save_results(records, summary, config, args.tag, settings.eval_results_dir)
