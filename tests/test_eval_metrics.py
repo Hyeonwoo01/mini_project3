@@ -291,3 +291,17 @@ def test_rescore_and_summary_report_coverage():
     assert (record["cover@3"], record["cover@5"], record["groups_found"]) == (0.5, 1.0, ["A", "B"])
     coverage = summarize([record], 5)["coverage"]
     assert coverage == {"count": 1, "cover@3": 0.5, "cover@5": 1.0, "all@3": 0.0, "all@5": 1.0}
+
+
+def test_synthesis_groups_are_summarized_apart_from_comparison():
+    from eval.run_eval import EvalItem, rescore_records, summarize
+    groups = (("A", ("a1",)), ("B", ("b1",)))
+    items = [EvalItem(id=i, q="q", type=t, gold_doc_ids=("a1", "b1"), answer_key="k", gold_groups=groups)
+             for i, t in (("c001", "comparison"), ("s001", "synthesis"), ("s004", "synthesis"))]
+    ranked = {"c001": ["a1", "b1"], "s001": ["a1", "x", "y", "b1"], "s004": ["a1"]}
+    stored = [{"id": item.id, "type": item.type, "q": "q", "top_score": 0.7, "latency_ms": 1.0,
+               "retrieved": [{"rank": n, "doc_id": d} for n, d in enumerate(ranked[item.id], start=1)]} for item in items]
+    summary = summarize(rescore_records(stored, items, 5), 5)
+    assert summary["coverage"] == {"count": 1, "cover@3": 1.0, "cover@5": 1.0, "all@3": 1.0, "all@5": 1.0}   # 비교 문항만
+    assert summary["coverage_by_type"]["synthesis"] == {"count": 2, "cover@3": 0.5, "cover@5": 0.75, "all@3": 0.0,
+                                                        "all@5": 0.5}

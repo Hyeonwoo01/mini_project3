@@ -55,7 +55,8 @@ class EvalItem:
     type: str
     gold_doc_ids: tuple[str, ...]
     answer_key: str
-    # 비교 문항: 대상별 정답 문서 (대상 이름, doc_id 들). 양쪽 근거를 모두 찾았는지(cover@k) 재는 데 쓴다
+    # 근거 그룹: 대상·입장별 정답 문서 (그룹 이름, doc_id 들). 비교 문항(대상별)·종합 문항(입장별)처럼 근거가 둘 이상
+    # 필요한 문항에 적고, 모든 그룹의 근거를 찾았는지(cover@k·all@k) 잰다. 한 문서가 여러 그룹에 들어갈 수 있다
     gold_groups: tuple[tuple[str, tuple[str, ...]], ...] = ()
 
 
@@ -295,8 +296,11 @@ def summarize(records: Sequence[dict[str, Any]], k: int) -> dict[str, Any]:
         "latency_ms": {"mean": round(mean(latencies), 1), "p95": latencies[max(math.ceil(0.95 * len(latencies)) - 1, 0)]}
         if latencies else {},
         "unanswerable_count": len(unanswerable),
-        # 비교 문항(gold_groups 가 있는 문항): 대상별 근거를 상위 k 안에서 찾은 비율과, 모든 대상을 찾은 문항 비율
-        "coverage": _coverage(records, k),
+        # 근거 그룹이 있는 문항: 그룹별 근거를 상위 k 안에서 찾은 비율과, 모든 그룹을 찾은 문항 비율.
+        # coverage 는 비교 문항만 (종합 문항에 그룹을 더하기 전 실험과 같은 기준), 유형별 값은 coverage_by_type
+        "coverage": _coverage([r for r in records if r.get("type") == "comparison"], k),
+        "coverage_by_type": {t: _coverage([r for r in records if r.get("type") == t], k)
+                             for t in sorted({r.get("type") for r in records if "cover@3" in r})},
     }
 
 
@@ -417,10 +421,11 @@ def format_summary(summary: dict[str, Any], k: int) -> str:
                          f"Hit@{k} {m[f'hit@{k}']:.3f}  MRR {m['mrr']:.3f}  ({m['count']}문항)")
     else:
         lines.append("[검색 평가] 답변 가능 문항이 없습니다")
-    coverage = summary.get("coverage", {})
-    if coverage.get("count"):
-        lines.append(f"  비교 문항 대상별 근거 포함률 cover@3 {coverage['cover@3']:.3f} · cover@{k} {coverage[f'cover@{k}']:.3f}"
-                     f" · 모든 대상 포함 all@{k} {coverage[f'all@{k}']:.3f} ({coverage['count']}문항)")
+    group_labels = {"comparison": "비교 문항 대상별", "synthesis": "종합 문항 입장별"}
+    for question_type, coverage in summary.get("coverage_by_type", {}).items():
+        lines.append(f"  {group_labels.get(question_type, question_type)} 근거 포함률 cover@3 {coverage['cover@3']:.3f} · "
+                     f"cover@{k} {coverage[f'cover@{k}']:.3f} · 모든 그룹 포함 all@3 {coverage['all@3']:.3f} · "
+                     f"all@{k} {coverage[f'all@{k}']:.3f} ({coverage['count']}문항)")
     labels = {"answerable_hit": "정답이 1위인 문항", "answerable_miss": f"정답을 {k}위 안에 못 찾은 문항",
               "unanswerable": "답변 불가 문항"}
     for name, stats in summary["top_score"].items():
