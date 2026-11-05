@@ -18,7 +18,11 @@ PDF 를 받지 않는 이유 (2026-11-04, 2차 probe·후보 검색 표본으로
 - 중기연: 표(th 제목·발행일 → td). 요약은 가장 긴 td ('01 연구의 배경 및 목적 …')
 - 산업연구원: og:title 이 '제목 - KIET 산업연구원 - …'. 발행일은 div.page_view 의 첫 'YYYY.MM.DD'.
   요약은 div.p_d-cont ('요약 언론보도 …' 탭 글자 뒤). 연구보고서는 이 칸에 목차만 있어 요약이 없는 것으로 처리한다
+- 서울연구원: div.bbs-view 의 strong.tit(제목), ul.mid-txt '발행일 YYYY-MM-DD', div.bbs-cont(요약 약 1,400자)
 - 이용 조건: 각 기관 누리집 저작권 정책(출처 표시, 비상업 이용)에 따라 출처·주소를 문서마다 남긴다
+
+선별 목록에서 뺀 보고서는 docs.db 에서도 지운다 (CLI 실행 시). 처리 결과(processed_documents)도 함께 지우므로 다음
+`indexer prepare` 가 다시 만든다. 이미 색인(Chroma)에 들어간 청크는 지우지 않으므로 색인 전에 정리한다
 """
 
 import copy
@@ -43,7 +47,9 @@ _BLOCK_TAGS = ("p", "div", "li", "dt", "dd", "tr", "table", "ul", "ol", "dl", "s
                "h1", "h2", "h3", "h4", "h5", "h6")
 KOSI_DETAIL = ("https://www.kosi.re.kr/front/functionDisplay?menuFrontNo=59996687477237983229272069890802427549"
                "&menuFrontURL=front/basicResearchDetail?dataSequence=")
-INSTITUTES = {"kdi": "한국개발연구원", "kosi": "중소벤처기업연구원", "kiet": "산업연구원"}
+SI_VIEW = "https://www.si.re.kr/bbs/view.do?key="
+SI_REPORT, SI_POLICY = "2024100039", "2024100154"     # 서울연구원 연구보고서·정책리포트 게시판
+INSTITUTES = {"kdi": "한국개발연구원", "kosi": "중소벤처기업연구원", "kiet": "산업연구원", "si": "서울연구원"}
 
 
 @dataclass(frozen=True)
@@ -55,9 +61,9 @@ class CuratedReport:
     reason: str      # 고른 이유
 
 
-# 선별 (2026-11-04, candidates.tsv 124건 중). 기준: 기간 2021-10~2026-10, 주제별 최대 4건, 최신 우선,
-# 상세 화면에 요약이 있는 기관. 지역화폐·소비 지원과 카드수수료·가맹점은 기간 안 후보가 없어 0건이고, 그래서 아직
-# 10건이 안 된다 (서울연구원 후보로 보충 예정). 제외 사유는 README '연구기관 보고서' 기록 참조
+# 선별 (2026-11-05, 후보 검색 124건 + 서울연구원 158건 중). 기준: 기간 2021-10~2026-10, 주제별 최대 4건, 최신 우선
+# (발행일은 상세 화면 기준), 상세 화면에 요약이 있는 보고서. 카드수수료·가맹점은 기간 안 후보가 없어 0건.
+# 제외 사유는 README '연구기관 보고서' 기록 참조
 CURATED_REPORTS: tuple[CuratedReport, ...] = (
     # 유통 규제 — 평가 문항 s004(의무휴업 규제 완화의 영향)의 근거가 지금은 뉴스로만 들어 있다
     CuratedReport("kdi", "https://www.kdi.re.kr/research/focusView?pub_no=19187",
@@ -69,9 +75,6 @@ CURATED_REPORTS: tuple[CuratedReport, ...] = (
     CuratedReport("kdi", "https://www.kdi.re.kr/research/reportView?pub_no=19217",
                   "유통시장의 환경 변화와 경제적 영향에 관한 연구: 시장구조·정책·수요 변화를 중심으로", "유통 규제",
                   "위 두 FOCUS 의 바탕 연구보고서 (국문요약)"),
-    CuratedReport("kiet", "https://www.kiet.re.kr/research/reportView?report_no=1126",
-                  "유통산업 디지털 전환 전략 연구 - 대규모점포 규제 효과를 중심으로", "유통 규제",
-                  "대규모점포 규제 효과 분석 (산업연구원 2024-10). 상세 화면에 요약이 없으면 수집하지 않는다"),
     # 소상공인·자영업 — 최신 순
     CuratedReport("kosi", KOSI_DETAIL + "J260416K02", "거시환경 변화에 따른 정책방향 연구 : 소상공인･상생분야",
                   "소상공인·자영업", "소상공인 정책 방향 (최신)"),
@@ -79,11 +82,19 @@ CURATED_REPORTS: tuple[CuratedReport, ...] = (
                   "2026년 소상공인 주요 이슈 개관"),
     CuratedReport("kosi", KOSI_DETAIL + "B260522K02", "소상공인 특화 생존지수 (Survival Index) 개발 및 지역경제 활성화 방안",
                   "소상공인·자영업", "지역별 소상공인 생존지수 — 지역 상권 분석 업무와 직접 연결"),
-    CuratedReport("kosi", KOSI_DETAIL + "H250319K15", "빅데이터를 활용한 소상공인 경영실태 분석", "소상공인·자영업",
-                  "매출 데이터 기반 경영실태 분석 — 사용자(카드 데이터 분석가)의 데이터와 같은 종류"),
-    # 골목상권·전통시장 — 기간 안 후보가 1건
+    CuratedReport("si", SI_VIEW + SI_REPORT + "&pstSn=2509020005", "서울시 소상공인 금융지원 제도와 재기지원 방향 모색",
+                  "소상공인·자영업", "서울시 소상공인 금융지원·재기지원 (서울 범위, 2025-08)"),
+    # 골목상권·전통시장
     CuratedReport("kosi", KOSI_DETAIL + "H250319K01", "지방소멸 시대 지속가능한 상권 생태계 재구축 방안",
                   "골목상권·전통시장", "지역 상권 생태계 정책 방향"),
+    CuratedReport("si", SI_VIEW + SI_REPORT + "&pstSn=2209120001",
+                  "서울시 골목상권 활성화를 위한 디지털 전환 기술 적용방안 연구", "골목상권·전통시장",
+                  "서울 골목상권 활성화 방안 (서울 범위)"),
+    # 지역화폐·소비 지원 — 서울연구원 검색으로 처음 찾음 (제목에 '지역화폐' 가 없어 본문 검색으로 걸림)
+    CuratedReport("si", SI_VIEW + SI_REPORT + "&pstSn=2404090001", "서울사랑상품권 운영진단과 개선방안",
+                  "지역화폐·소비 지원", "서울사랑상품권(지역화폐) 운영 진단 — 지역화폐 관련 평가 문항의 서울 근거"),
+    CuratedReport("si", SI_VIEW + SI_REPORT + "&pstSn=2212060003", "코로나의 서울 자영업 영향과 보편적 재난지원금 효과",
+                  "지역화폐·소비 지원", "재난지원금의 자영업 매출 효과 (소비 지원 정책 효과 분석)"),
 )
 
 
@@ -161,7 +172,19 @@ def parse_kiet(html: str) -> ReportPage:
     return ReportPage(_og_title(soup).split(" - KIET")[0].strip() or None, published, text, "요약")
 
 
-PARSERS: dict[str, Callable[[str], ReportPage]] = {"kdi": parse_kdi, "kosi": parse_kosi, "kiet": parse_kiet}
+def parse_si(html: str) -> ReportPage:
+    soup = BeautifulSoup(html, "lxml")
+    view = soup.select_one("div.bbs-view") or soup
+    title = view.select_one("strong.tit")
+    meta = view.select_one("ul.mid-txt")
+    match = re.search(r"발행일\s*(\d{4}-\d{2}-\d{2})", meta.get_text(" ", strip=True)) if meta else None
+    body = view.select_one("div.bbs-cont")
+    return ReportPage(" ".join(title.get_text(" ", strip=True).split()) if title else None,
+                      match.group(1) if match else None, _lines(body) if body else "", "요약")
+
+
+PARSERS: dict[str, Callable[[str], ReportPage]] = {"kdi": parse_kdi, "kosi": parse_kosi, "kiet": parse_kiet,
+                                                   "si": parse_si}
 
 
 class Skipped(Exception):
@@ -196,12 +219,31 @@ class CollectStats:
     already: list[str] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
     failed: list[str] = field(default_factory=list)
+    pruned: list[str] = field(default_factory=list)
 
     def summary(self) -> str:
-        lines = [f"저장 {len(self.saved)} · 이미 수집 {len(self.already)} · 제외 {len(self.skipped)} · 실패 {len(self.failed)}"]
+        lines = [f"저장 {len(self.saved)} · 이미 수집 {len(self.already)} · 제외 {len(self.skipped)} · 실패 {len(self.failed)}"
+                 + (f" · 목록에서 빠져 삭제 {len(self.pruned)}" if self.pruned else "")]
         lines += [f"  제외: {item}" for item in self.skipped]
         lines += [f"  실패: {item}" for item in self.failed]
+        lines += [f"  삭제: {item}" for item in self.pruned]
         return "\n".join(lines)
+
+
+def prune_unlisted(conn, reports: Sequence[CuratedReport]) -> list[str]:
+    """선별 목록에 없는 policy_report 문서를 지운다. 이 수집기만 policy_report 를 만든다.
+    처리 결과는 그 문서를 대표 문서로 가리키는 행까지 지운다 (다음 prepare 가 다시 만든다)."""
+    listed = {r.url for r in reports}
+    stale = [(doc_id, title) for doc_id, title, url in
+             conn.execute("SELECT doc_id, title, url FROM documents WHERE doc_type = ?", (DocType.POLICY_REPORT.value,))
+             if url not in listed]
+    if stale:
+        ids = [doc_id for doc_id, _ in stale]
+        marks = ",".join("?" * len(ids))
+        conn.execute(f"DELETE FROM processed_documents WHERE doc_id IN ({marks}) OR canonical_doc_id IN ({marks})",
+                     ids + ids)
+        conn.execute(f"DELETE FROM documents WHERE doc_id IN ({marks})", ids)
+    return [f"{title} ({doc_id})" for doc_id, title in stale]
 
 
 def write_review(records: Sequence[DocumentRecord], path: Path) -> None:
@@ -215,7 +257,8 @@ def write_review(records: Sequence[DocumentRecord], path: Path) -> None:
 
 
 def run(dry_run: bool = False, reports: Sequence[CuratedReport] = CURATED_REPORTS, fetcher: Fetcher | None = None,
-        db_path: Path | None = None, review_path: Path | None = None) -> CollectStats:
+        db_path: Path | None = None, review_path: Path | None = None, prune: bool = False) -> CollectStats:
+    """prune: 선별 목록에 없는 기존 보고서를 지운다 (CLI 는 켠다. 목록 일부만 넘기는 시험에서는 끈다)."""
     stats = CollectStats()
     if dry_run:
         for report in reports:
@@ -243,6 +286,8 @@ def run(dry_run: bool = False, reports: Sequence[CuratedReport] = CURATED_REPORT
             stats.saved.append(record)
             print(f"  저장 {record.published_at} {label} ({record.extra['text_kind']} {record.extra['text_chars']:,}자)",
                   flush=True)
+        if prune:
+            stats.pruned = prune_unlisted(conn, reports)
     review_path = review_path or get_settings().raw_dir / "_probe" / "reports" / "collected.md"
     write_review(stats.saved, review_path)
     print(stats.summary())

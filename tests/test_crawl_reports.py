@@ -3,8 +3,9 @@
 import pytest
 
 from collector import crawl_reports as reports
-from collector.crawl_reports import CuratedReport, parse_kdi, parse_kiet, parse_kosi
-from common.docstore import get_document, open_db
+from collector.crawl_reports import CuratedReport, parse_kdi, parse_kiet, parse_kosi, parse_si
+from common.docstore import get_document, open_db, upsert_documents
+from common.schema import CollectMethod, DocType, DocumentRecord
 
 LONG = "대형마트 매출은 증가했고 전통시장 매출 감소는 확인되지 않았다. " * 10   # MIN_TEXT_CHARS 이상
 
@@ -66,6 +67,20 @@ def test_kiet_report_with_only_table_of_contents_has_no_summary():
     assert parse_kiet(KIET_REPORT).text == ""
 
 
+SI_DETAIL = f"""<html><body><div class="bbs-view bbs-view2"><div class="bbs-header"><div class="txt-wrap">
+<strong class="tit txt-over2">서울사랑상품권 운영진단과 개선방안</strong>
+<ul class="top-txt"><li><i class="date">등록일</i>2024-04-09</li></ul>
+<ul class="mid-txt mt15"><li>저자 박희석</li><li>발행일 2024-03-31</li></ul></div></div>
+<div class="bbs-cont"><p>서울사랑상품권 운영 진단</p><p>{LONG}</p></div>
+<div class="bbs-related"><a class="txt-wrap"><p class="tit txt-over2">관련 보고서</p></a></div></div></body></html>"""
+
+
+def test_seoul_institute_reads_title_publication_date_and_summary():
+    page = parse_si(SI_DETAIL)
+    assert (page.title, page.published_at) == ("서울사랑상품권 운영진단과 개선방안", "2024-03-31")   # 등록일이 아니라 발행일
+    assert page.text.startswith("서울사랑상품권 운영 진단\n대형마트") and "관련 보고서" not in page.text
+
+
 @pytest.fixture
 def raw_store(tmp_path, monkeypatch):
     saved = {}
@@ -122,11 +137,31 @@ def test_dry_run_makes_no_requests(tmp_path, make_fetcher, http, capsys):
     assert f"수집 대상 {len(reports.CURATED_REPORTS)}건" in capsys.readouterr().out
 
 
+def test_prune_removes_reports_dropped_from_the_list(tmp_path):
+    db = tmp_path / "docs.db"
+
+    def doc(doc_id, doc_type, url):
+        return DocumentRecord(doc_id=doc_id, doc_type=doc_type, source="기관", title=doc_id, url=url,
+                              collected_at="2026-11-05T00:00:00+00:00", collect_method=CollectMethod.CRAWL)
+
+    with open_db(db) as conn:
+        upsert_documents(conn, [doc("rpt_keep", DocType.POLICY_REPORT, "https://x/keep"),
+                                doc("rpt_drop", DocType.POLICY_REPORT, "https://x/drop"),
+                                doc("news_1", DocType.NEWS, "https://x/news")])
+        conn.execute("INSERT INTO processed_documents (doc_id, status, canonical_doc_id, processed_at) "
+                     "VALUES (?, ?, ?, ?)", ("news_1", "duplicate", "rpt_drop", "2026-11-05T00:00:00"))
+        pruned = reports.prune_unlisted(conn, [_report("kdi", "https://x/keep")])
+        remaining = {row[0] for row in conn.execute("SELECT doc_id FROM documents")}
+        processed = conn.execute("SELECT COUNT(*) FROM processed_documents").fetchone()[0]
+    assert pruned == ["rpt_drop (rpt_drop)"]
+    assert remaining == {"rpt_keep", "news_1"}       # 다른 종류 문서는 그대로
+    assert processed == 0                            # 지운 문서를 대표로 가리키던 처리 결과도 지운다 (prepare 가 다시 만든다)
+
+
 def test_curated_list_follows_selection_criteria():
-    """선별 기준: 주제별 최대 4건, 총 20건 이하 (README '연구기관 보고서 선별 기준'). 같은 보고서를 두 번 넣지 않는다.
-    총 10건 하한은 아직 못 채웠다 (지역화폐·카드수수료 주제 후보 0건, 서울연구원 후보로 보충 예정)."""
+    """선별 기준: 총 10~20건, 주제별 최대 4건 (README '연구기관 보고서 선별 기준'). 같은 보고서를 두 번 넣지 않는다."""
     curated = reports.CURATED_REPORTS
-    assert len(curated) <= 20
+    assert 10 <= len(curated) <= 20
     assert len({r.url for r in curated}) == len(curated)
     topics = [r.topic for r in curated]
     assert max(topics.count(t) for t in set(topics)) <= 4

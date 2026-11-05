@@ -85,7 +85,7 @@ def main() -> None:
         report_search.run(only=args.only, keywords=args.keyword)
     elif args.command == "reports":
         from collector import crawl_reports
-        crawl_reports.run(dry_run=args.dry_run)
+        crawl_reports.run(dry_run=args.dry_run, prune=True)
     elif args.command == "blog":
         from collector import crawl_blog
         crawl_blog.run(queries=args.query, max_results=args.max_results)
