@@ -219,6 +219,8 @@ class VerifyReport:
     kept_documents: int
     missing_documents: int
     empty_chunks: int
+    # 출처 추적에 필요한 메타데이터 칸별로 값이 빈 문서 수 (가이드 점검: 모든 문서의 출처 URL·발행일·수집 일시)
+    missing_metadata: dict[str, int] = field(default_factory=dict)
     samples: list[tuple[str, list[tuple[float, str, str]]]] = field(default_factory=list)
 
     def summary(self) -> str:
@@ -226,10 +228,26 @@ class VerifyReport:
                  f"  설정: {self.metadata}",
                  f"  청크 {self.chunks:,}개 · 문서 {self.documents:,}건 (인덱싱 대상 {self.kept_documents:,}건, "
                  f"누락 {self.missing_documents:,}건) · 빈 청크 {self.empty_chunks:,}개"]
+        if self.missing_metadata:
+            lines.append("  메타데이터 빈 값 (문서 수): "
+                         + " · ".join(f"{name} {count:,}" for name, count in self.missing_metadata.items()))
         for query, hits in self.samples:
             lines.append(f"  [샘플 검색] {query}")
             lines += [f"    {score:.3f}  {date[:10]}  {title}" for score, date, title in hits]
         return "\n".join(lines)
+
+
+TRACE_FIELDS = ("doc_type", "source", "title", "url", "published_at", "collected_at")
+
+
+def missing_metadata_counts(metadatas: Sequence[dict]) -> dict[str, int]:
+    """칸마다 값이 비어 있는 청크가 하나라도 있는 문서 수."""
+    missing: dict[str, set[str]] = {name: set() for name in TRACE_FIELDS}
+    for meta in metadatas:
+        for name in TRACE_FIELDS:
+            if not str(meta.get(name) or "").strip():
+                missing[name].add(meta["doc_id"])
+    return {name: len(ids) for name, ids in missing.items()}
 
 
 def verify_collection(
@@ -253,6 +271,7 @@ def verify_collection(
         collection=collection, metadata=dict(col.metadata or {}), chunks=len(data["ids"]),
         documents=len(doc_ids), kept_documents=len(kept), missing_documents=len(kept - doc_ids),
         empty_chunks=sum(not (d or "").strip() for d in data["documents"]),
+        missing_metadata=missing_metadata_counts(data["metadatas"]),
     )
     if queries:
         embeddings = embeddings or get_embedding_model()

@@ -91,6 +91,9 @@ def test_build_resumes_removes_stale_and_verifies(env):
     report = verify_collection("docs__c500", queries=["골목상권 지원"], embeddings=kwargs["embeddings"],
                                chroma_dir=chroma, db_path=db)
     assert (report.chunks, report.documents, report.missing_documents, report.empty_chunks) == (2, 1, 0, 0)
+    assert report.missing_metadata == {name: 0 for name in
+                                       ("doc_type", "source", "title", "url", "published_at", "collected_at")}
+    assert "메타데이터 빈 값 (문서 수): doc_type 0" in report.summary()
     assert report.metadata["embedding_model"] == "fake" and report.metadata["chunk_config"] == "c500"
     assert len(report.samples[0][1]) == 2
 
@@ -176,3 +179,11 @@ def test_dates_dry_run_counts_annotated_expressions(env):
     stats = build_collection(get_chunk_config("c500-dates"), "docs__c500-dates", dry_run=True, **kwargs)
     assert (stats.dated_documents, stats.dated_expressions) == (2, 15)      # '다음 달' 이 a 에 12번, b 에 3번
     assert "표현 15개" in stats.summary()
+
+
+def test_missing_metadata_counts_documents_not_chunks():
+    from indexer.embed import missing_metadata_counts
+    metas = [{"doc_id": "a", "url": "u", "published_at": ""}, {"doc_id": "a", "url": "u", "published_at": ""},
+             {"doc_id": "b", "url": "", "published_at": "2026-01-01"}]
+    counts = missing_metadata_counts(metas)
+    assert counts["published_at"] == 1 and counts["url"] == 1 and counts["title"] == 2
