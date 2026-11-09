@@ -3,7 +3,6 @@
 import json
 from pathlib import Path
 
-import pandas as pd
 import pytest
 
 from app import eval_data as ed

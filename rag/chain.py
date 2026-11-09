@@ -44,7 +44,7 @@ MAX_HISTORY_TURNS = 3
 # (README 실험 기록). 비교 표현이 없는 질문은 분해하지 않아 LLM 호출·응답 시간이 그대로다
 DEFAULT_DECOMPOSE = True
 # 답변 근거 청크의 상대 날짜('내일부터')에 발행일 기준 날짜를 덧붙인다 (common/dates.py). 검색은 바꾸지 않는다.
-# 실험 중 (README 실험 기록 '상대 날짜를 답변 근거에만')
+# 미채택 (README 실험 기록 '상대 날짜를 답변 근거에만'): t007 은 해결했지만 f016 이 2회 낮아져 기준 미달. 옵션만 남긴다
 DEFAULT_ANNOTATE_DATES = False
 _CITATION = re.compile(r"\[(\d{1,2})\]")
 
