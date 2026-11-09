@@ -187,3 +187,20 @@ def test_missing_metadata_counts_documents_not_chunks():
              {"doc_id": "b", "url": "", "published_at": "2026-01-01"}]
     counts = missing_metadata_counts(metas)
     assert counts["published_at"] == 1 and counts["url"] == 1 and counts["title"] == 2
+
+
+def test_count_tokens_uses_encoder_and_tolerates_missing_tokenizer(monkeypatch):
+    from indexer.embed import BuildStats, count_tokens
+
+    class FakeEncoding:
+        def encode_batch(self, texts):
+            return [t.split() for t in texts]
+
+    assert count_tokens(["a b", "c"], encoding=FakeEncoding()) == 3
+    import builtins
+    real_import = builtins.__import__
+    monkeypatch.setattr(builtins, "__import__",
+                        lambda name, *a, **k: (_ for _ in ()).throw(ImportError()) if name == "tiktoken"
+                        else real_import(name, *a, **k))
+    assert count_tokens(["a"]) is None
+    assert "임베딩 입력 토큰: 1,234개" in BuildStats(collection="c", embedding_tokens=1234).summary()

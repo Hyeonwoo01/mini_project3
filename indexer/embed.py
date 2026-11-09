@@ -55,6 +55,7 @@ class BuildStats:
     dated_documents: int = 0      # normalize_dates 설정에서 날짜를 덧붙인 문서 수
     dated_expressions: int = 0
     body_lengths: list[int] = field(default_factory=list)
+    embedding_tokens: int | None = None   # --dry-run 에서만: 임베딩 API 로 보낼 토큰 수 (비용 추정용)
 
     def summary(self) -> str:
         lines = [f"[build 결과] 컬렉션={self.collection}",
@@ -65,6 +66,8 @@ class BuildStats:
                          f"/ 95% {q[18]:.0f} / 최대 {max(self.body_lengths)}자")
             short = sum(length < 100 for length in self.body_lengths)
             lines.append(f"  100자 미만 청크: {short:,}개 ({short / len(self.body_lengths):.1%})")
+        if self.embedding_tokens is not None:
+            lines.append(f"  임베딩 입력 토큰: {self.embedding_tokens:,}개 ({TOKEN_ENCODING}, text-embedding-3 계열 토크나이저)")
         if self.dated_expressions:
             lines.append(f"  상대 날짜에 날짜 덧붙임: 문서 {self.dated_documents:,}건 · 표현 {self.dated_expressions:,}개")
         lines.append(f"  빈 청크로 제외: {self.skipped_empty:,}개")
@@ -114,6 +117,20 @@ def _get_all(col, include: list[str]) -> dict[str, list]:
         offset += len(page["ids"])
 
 
+TOKEN_ENCODING = "cl100k_base"
+
+
+def count_tokens(texts: Sequence[str], encoding=None) -> int | None:
+    """임베딩 입력 토큰 수. 토크나이저를 쓸 수 없으면(첫 실행 때 인코딩 파일을 못 받는 환경 등) None."""
+    if encoding is None:
+        try:
+            import tiktoken
+            encoding = tiktoken.get_encoding(TOKEN_ENCODING)
+        except Exception:
+            return None
+    return sum(len(tokens) for tokens in encoding.encode_batch(list(texts)))
+
+
 def _make_chunks(conn: Connection, config: ChunkConfig, stats: BuildStats) -> list[Chunk]:
     chunks: list[Chunk] = []
     for source in iter_chunk_sources(conn):
@@ -147,6 +164,7 @@ def build_collection(
     with open_db(db_path, read_only=True) as conn:
         chunks = _make_chunks(conn, config, stats)
     if dry_run:
+        stats.embedding_tokens = count_tokens([c.text for c in chunks])
         return stats
 
     model_name = embedding_model_name or get_settings().embedding_model
