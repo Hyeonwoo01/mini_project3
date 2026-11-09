@@ -14,12 +14,8 @@ v1(대상별 결과를 번갈아 합침)은 쓰지 않는다. LLM 이 비교가 
 합치면서 질문 전체와 맞던 문서가 밀려 Hit@3 0.938 → 0.781, MRR 0.891 → 0.70 으로 떨어졌다. 양쪽 근거 포함(all@5)은
 0.40 그대로였다 (`...-kb2-dec-r1~r3`). 같은 결과로 v2 의 병합을 시뮬레이션하면 Hit@3·MRR 은 유지되고 all@5 는 0.60 이다.
 
-v3 (입장별 분해, 실험 중 — 기본값은 v2)
-- 종합 질문(긍정 평가와 비판, 상반된 근거)은 한쪽 입장의 기사만 상위를 채운다 (종합 all@5: 개발용 0.75, 평가셋 밖 0.00).
-  s004 는 '상반' 표현으로 분해됐지만 LLM 이 입장이 아닌 대상(전통시장 / 골목상권)으로 나눠 두 질의 모두 같은 입장의 기사를
-  찾았고, h13 은 비교 표현이 없어 분해되지 않았다
-- 입장 대조 표현(긍정 … 비판·한계, 찬반, 엇갈)을 분해 조건에 더하고, 프롬프트에 '입장 대조는 입장별로 나누고 입장을 나타내는
-  말을 질의에 넣는다'는 규칙과 예시를 더한다. 병합 방식(원래 결과 유지 + 빠진 쪽 보강)은 v2 와 같다
+입장별 분해(v3, 미채택): 입장 대조 표현을 분해 조건에 더하고 '입장마다 질의' 규칙을 프롬프트에 넣었다. 하위 질의는 입장별로
+나뉘었지만 비판 쪽 질의의 1위도 같은 주제의 긍정 기사여서 종합 all@5 가 그대로였다 (README 실험 기록, 커밋 f76c29b)
 
 - 분해에 실패하면(LLM 오류·형식 오류) 원래 질문으로 검색한다. 분해가 검색을 막지 않는다
 - 같은 질문의 분해 결과는 캐시한다. 평가 하네스의 검색 평가와 답변 평가가 같은 하위 질의를 쓰게 하기 위해서다
@@ -48,12 +44,6 @@ SUB_QUERY_FIELD = "sub_query"   # 청크 메타데이터: 그 문서를 찾은 �
 # '상반기'(상반 + 기)는 비교 표현이 아니므로 뺀다
 COMPARISON_CUES = re.compile(r"다른가|다른지|다른 점|달라|차이|비교|각각|대조|상반(?!기)|어느 쪽|어느 것|\bvs\b", re.I)
 
-# v3: 입장 대조 표현. '긍정적 평가와 비판', '성과와 한계', '찬반', '평가가 엇갈' 등 (평가셋 44+14문항 중 s005·h13 만 해당)
-STANCE_CUES = re.compile(r"(긍정|찬성|장점|성과)[^?]{0,20}?(비판|한계|부정|반대|단점|우려|부작용)|찬반|엇갈")
-
-DECOMPOSE_VERSIONS = ("v2", "v3")
-DEFAULT_DECOMPOSE_VERSION = "v2"
-
 # 규칙과 예시는 질문 형식에 관한 것만 둔다 (평가 문항의 대상 이름을 넣지 않는다)
 DECOMPOSE_SYSTEM_PROMPT = """당신은 문서 검색 질의를 만드는 도우미다. 질문을 읽고 검색에 쓸 질의를 JSON 으로만 답한다.
 
@@ -69,21 +59,6 @@ DECOMPOSE_SYSTEM_PROMPT = """당신은 문서 검색 질의를 만드는 도우�
 - 'C 사업의 지원 대상과 지원 금액은?' → {{"queries": ["C 사업의 지원 대상과 지원 금액은?"]}}
 
 출력 형식: {{"queries": ["질의1", "질의2"]}}"""
-
-# v3: 입장 대조 규칙과 예시를 더한다. v2 규칙 1 의 '서로 다른 입장을 대조하면' 만으로는 대상별로 나누는 경우가 있었다 (s004)
-DECOMPOSE_SYSTEM_PROMPT_V3 = DECOMPOSE_SYSTEM_PROMPT.replace(
-    "5. 질의는 최대 3개다.",
-    "5. 질의는 최대 3개다.\n"
-    "6. 질문이 입장·평가를 대조하면(긍정 평가와 비판, 찬성과 반대, 상반된 근거) 대상이 아니라 입장마다 질의를 하나씩 만든다. "
-    "각 질의에는 주제와 그 입장을 나타내는 말(효과·성과·찬성 / 비판·한계·우려·반대)을 넣는다. "
-    "질문에 나온 세부 대상(지역·업종 등)으로 나누지 않는다.",
-).replace(
-    "- 'C 사업의 지원 대상과 지원 금액은?'",
-    "- 'D 제도가 소상공인 매출에 미친 영향에 대해 어떤 긍정적 평가와 비판이 있나?' → "
-    "{{\"queries\": [\"D 제도 소상공인 매출 효과 긍정 평가 성과\", \"D 제도 소상공인 매출 효과 비판 한계 우려\"]}}\n"
-    "- 'C 사업의 지원 대상과 지원 금액은?'",
-)
-DECOMPOSE_PROMPTS = {"v2": DECOMPOSE_SYSTEM_PROMPT, "v3": DECOMPOSE_SYSTEM_PROMPT_V3}
 
 _JSON_OBJECT = re.compile(r"\{.*\}", re.S)
 
@@ -104,11 +79,8 @@ def parse_queries(text: str, question: str) -> list[str]:
 
 
 class QueryDecomposer:
-    def __init__(self, llm: BaseChatModel, cache_size: int = CACHE_SIZE, version: str = DEFAULT_DECOMPOSE_VERSION) -> None:
-        if version not in DECOMPOSE_PROMPTS:
-            raise ValueError(f"알 수 없는 분해 버전: {version!r} (가능: {', '.join(DECOMPOSE_VERSIONS)})")
-        self.version = version
-        prompt = ChatPromptTemplate.from_messages([("system", DECOMPOSE_PROMPTS[version]), ("human", "{question}")])
+    def __init__(self, llm: BaseChatModel, cache_size: int = CACHE_SIZE) -> None:
+        prompt = ChatPromptTemplate.from_messages([("system", DECOMPOSE_SYSTEM_PROMPT), ("human", "{question}")])
         self._chain = prompt | llm | StrOutputParser()
         self._cache: OrderedDict[str, list[str]] = OrderedDict()
         self._cache_size = cache_size
@@ -127,21 +99,9 @@ class QueryDecomposer:
             self._cache.popitem(last=False)
         return list(queries)
 
-    def should_decompose(self, question: str) -> bool:
-        return needs_decomposition(question, self.version)
-
 
 def looks_like_comparison(question: str) -> bool:
     return bool(COMPARISON_CUES.search(question))
-
-
-def looks_like_stance_contrast(question: str) -> bool:
-    return bool(STANCE_CUES.search(question))
-
-
-def needs_decomposition(question: str, version: str = DEFAULT_DECOMPOSE_VERSION) -> bool:
-    """분해 대상인가. v2 는 비교 표현만, v3 는 입장 대조 표현도 본다."""
-    return looks_like_comparison(question) or (version == "v3" and looks_like_stance_contrast(question))
 
 
 def fill_missing_targets(base: Sequence[RetrievedChunk], per_query: Sequence[Sequence[RetrievedChunk]],
@@ -172,7 +132,7 @@ def fill_missing_targets(base: Sequence[RetrievedChunk], per_query: Sequence[Seq
 
 
 class DecomposingRetriever:
-    """검색기를 감싸 비교 질문을 대상별로(v3 는 입장 대조 질문을 입장별로도) 나눠 검색한다. rag.retriever.Retriever 와 같은 방식으로 쓴다."""
+    """검색기를 감싸 비교 질문을 대상별로 나눠 검색한다. rag.retriever.Retriever 와 같은 방식으로 쓴다."""
 
     def __init__(self, retriever, decomposer: QueryDecomposer) -> None:
         self.inner = retriever
@@ -188,7 +148,7 @@ class DecomposingRetriever:
     def retrieve(self, query: str, *, k: int, filters: SearchFilters | None = None) -> list[RetrievedChunk]:
         self.last_sub_queries = []
         base = self.inner.retrieve(query, k=k, filters=filters)
-        if not self.decomposer.should_decompose(query):
+        if not looks_like_comparison(query):
             return base
         queries = self.decomposer.decompose(query)
         if len(queries) < 2:
