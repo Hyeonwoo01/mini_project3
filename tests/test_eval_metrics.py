@@ -270,12 +270,12 @@ def test_gold_groups_are_validated(tmp_path):
     from eval.run_eval import load_eval_set
     base = {"id": "c001", "q": "A와 B?", "type": "comparison", "gold_doc_ids": ["a1", "b1"], "answer_key": "k"}
     ok = tmp_path / "ok.jsonl"
-    ok.write_text(json.dumps({**base, "gold_groups": {"A": ["a1"], "B": ["b1"]}}, ensure_ascii=False) + "\n")
+    ok.write_text(json.dumps({**base, "gold_groups": {"A": ["a1"], "B": ["b1"]}}, ensure_ascii=False) + "\n", encoding="utf-8")
     [item] = load_eval_set(ok)
     assert item.gold_groups == (("A", ("a1",)), ("B", ("b1",)))
     for groups in ({"A": ["a1"]}, {"A": ["a1"], "B": ["zz"]}, {"A": [], "B": ["b1"]}):
         bad = tmp_path / "bad.jsonl"
-        bad.write_text(json.dumps({**base, "gold_groups": groups}, ensure_ascii=False) + "\n")
+        bad.write_text(json.dumps({**base, "gold_groups": groups}, ensure_ascii=False) + "\n", encoding="utf-8")
         with pytest.raises(ValueError):
             load_eval_set(bad)
 
