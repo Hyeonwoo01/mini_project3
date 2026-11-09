@@ -18,6 +18,7 @@ from app import components as ui
 from app import eval_data as ed
 from app.experiments import (
     ADOPTED_ANSWER_SETTING,
+    ADOPTED_RETRIEVAL_RUN,
     ANSWER_COMPARISONS,
     ANSWER_SETTINGS,
     CONTEXT_CHUNK_COMPARISON,
@@ -117,22 +118,24 @@ def render_overview(results_dir: Path) -> None:
     refused_ids = sorted({row.id for frame in answer_frames(root, adopted.key, "all")
                           for row in frame.itertuples() if row.type != "unanswerable" and row.refused})
     latency = ed.answer_latency(results_dir, adopted)
-    news_retrieval = summary(root, _comparison("primary").candidate.run_id)["overall"]
-    primary_retrieval = summary(root, _comparison("primary8").candidate.run_id)["overall"]
+    adopted_summary = summary(root, ADOPTED_RETRIEVAL_RUN)
+    adopted_retrieval = adopted_summary["overall"]
+    coverage = adopted_summary.get("coverage_by_type", {})
+    answerable = int(ed.setting_summary(answer_frames(root, adopted.key, "all"))["answerable"].iloc[0])
 
     st.html(ui.hero_html(
         "답변 정답률",
         _pct(all_scores["accuracy"]),
         f"채택 설정(하이브리드 검색 + 1차 자료·연구기관 보고서·법령, 문서당 청크 2개, 프롬프트 v1, 비교 질문 분해) · "
-        f"답변 가능 {int(ed.setting_summary(answer_frames(root, adopted.key, 'all'))['answerable'].iloc[0])}문항 · 3회 평균 "
+        f"답변 가능 {answerable}문항 · 3회 평균 "
         f"(실행별 {_pct(all_scores['accuracy_min'])} ~ {_pct(all_scores['accuracy_max'])}) · "
         f"부분 정답 포함 {_pct(all_scores['accuracy_with_partial'])}",
     ))
     st.html(ui.stat_tiles_html([
-        ui.StatTile("검색 Hit@3 · 뉴스 문항", f"{news_retrieval['hit@3']:.3f}",
-                    f"평가셋 v1.3 · {news_retrieval['count']}문항 · MRR {news_retrieval['mrr']:.3f}"),
-        ui.StatTile("검색 Hit@3 · 1차 자료 문항", f"{primary_retrieval['hit@3']:.3f}",
-                    f"평가셋 v2.0 · {primary_retrieval['count']}문항 · MRR {primary_retrieval['mrr']:.3f}"),
+        ui.StatTile("검색 Hit@3", f"{adopted_retrieval['hit@3']:.3f}",
+                    f"평가셋 v2.3 · {adopted_retrieval['count']}문항 · MRR {adopted_retrieval['mrr']:.3f}"),
+        ui.StatTile("양쪽 근거 포함 all@5", f"비교 {coverage.get('comparison', {}).get('all@5', 0):.2f}",
+                    f"종합 {coverage.get('synthesis', {}).get('all@5', 0):.2f} · 비교·종합 문항이 근거 그룹을 모두 찾은 비율"),
         ui.StatTile("출처 정확도", _pct(all_scores["citation_accuracy"]), "인용한 근거 번호가 맞은 비율 · 3회 평균"),
         ui.StatTile("거절 정확도", _pct(news_scores["refusal_accuracy"]), "답변 불가 6문항 × 3회"),
         ui.StatTile("잘못된 거절", _pct(all_scores["false_refusal_rate"]), " · ".join(refused_ids) or "없음"),
@@ -142,7 +145,7 @@ def render_overview(results_dir: Path) -> None:
     html_card("decisions", "실험별 결정", "같은 평가셋 버전에서 한 가지만 바꿔 비교했다. 자세한 수치는 각 보기에서 확인",
               ui.table_html(["실험", "평가셋", "비교", "지표", "결정"], _decision_rows(results_dir)))
     st.html(ui.callout_html("측정의 한계", [
-        "답변 가능 문항이 24 + 8개라 1문항이 약 3~4%p 에 해당한다.",
+        f"답변 가능 문항이 {answerable}개라 1문항이 약 {100 / answerable:.1f}%p 에 해당한다.",
         "temperature 0 에서도 실행마다 등급이 바뀌는 문항이 있어(뉴스 문항 24개 중 5~6개), 답변 비교는 3회 평균과 문항별 일관성으로 판단한다.",
         "검색 지표는 정답 문서 목록 기준이라, 목록 밖 관련 문서는 판정(정답 보정)으로 추가해야 공정하게 비교된다.",
     ], tone="info"))

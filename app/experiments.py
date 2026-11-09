@@ -212,6 +212,8 @@ ANSWER_COMPARISONS: tuple[AnswerComparison, ...] = (
                      decision="f032 거절 → 정확 3회, f033 부분 → 정확 3회. f030·f031 은 두 설정 모두 정확 없음", eval_set="v2.3"),
 )
 ADOPTED_ANSWER_SETTING = "kb4"
+# 채택 설정의 검색 지표 (평가셋 v2.3 38문항, 정답 보정·근거 그룹 반영 후 다시 채점한 결과). 요약 보기의 대표 검색 수치
+ADOPTED_RETRIEVAL_RUN = "20261105-0458_hybrid-c500-ctx2-kb4-r1-v2.3groups"
 
 # 거절 임계값 근거: 답변 불가 문항까지 포함한 검색 실험 (30문항)
 THRESHOLD_RUNS: tuple[RunRef, ...] = (
