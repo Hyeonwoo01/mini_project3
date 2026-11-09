@@ -1,0 +1,111 @@
+{
+  "config": {
+    "tag": "emb-small-vector",
+    "collection": "docs__c500",
+    "k": 5,
+    "mode": "vector",
+    "hybrid": null,
+    "doc_types": null,
+    "max_chunks_per_doc": 1,
+    "collapse_same_title": true,
+    "collection_metadata": {
+      "embedding_model": "text-embedding-3-small",
+      "chunk_overlap": 100,
+      "chunk_config": "c500",
+      "chunk_size": 500,
+      "created_at": "2026-11-03T05:01:17+00:00",
+      "include_title": true
+    },
+    "eval_set_items": 44,
+    "eval_set": "eval_set.jsonl",
+    "ids": null,
+    "git_commit": "4ed4c28",
+    "chain": null,
+    "evaluated_at": "2026-11-09T10:47:42"
+  },
+  "overall": {
+    "count": 38,
+    "hit@1": 0.6053,
+    "hit@3": 0.7632,
+    "hit@5": 0.7895,
+    "mrr": 0.6864
+  },
+  "by_type": {
+    "comparison": {
+      "count": 5,
+      "hit@1": 0.4,
+      "hit@3": 0.6,
+      "hit@5": 0.6,
+      "mrr": 0.5
+    },
+    "fact": {
+      "count": 21,
+      "hit@1": 0.619,
+      "hit@3": 0.7143,
+      "hit@5": 0.7619,
+      "mrr": 0.6786
+    },
+    "synthesis": {
+      "count": 4,
+      "hit@1": 1,
+      "hit@3": 1,
+      "hit@5": 1,
+      "mrr": 1.0
+    },
+    "temporal": {
+      "count": 8,
+      "hit@1": 0.5,
+      "hit@3": 0.875,
+      "hit@5": 0.875,
+      "mrr": 0.6667
+    }
+  },
+  "top_score": {
+    "answerable_hit": {
+      "count": 23,
+      "min": 0.5698,
+      "median": 0.6809,
+      "max": 0.7316
+    },
+    "answerable_miss": {
+      "count": 8,
+      "min": 0.4844,
+      "median": 0.652,
+      "max": 0.6956
+    },
+    "unanswerable": {
+      "count": 6,
+      "min": 0.4472,
+      "median": 0.5603,
+      "max": 0.6808
+    }
+  },
+  "latency_ms": {
+    "mean": 217.6,
+    "p95": 232.0
+  },
+  "unanswerable_count": 6,
+  "coverage": {
+    "count": 5,
+    "cover@3": 0.5,
+    "cover@5": 0.5,
+    "all@3": 0.4,
+    "all@5": 0.4
+  },
+  "coverage_by_type": {
+    "comparison": {
+      "count": 5,
+      "cover@3": 0.5,
+      "cover@5": 0.5,
+      "all@3": 0.4,
+      "all@5": 0.4
+    },
+    "synthesis": {
+      "count": 4,
+      "cover@3": 0.625,
+      "cover@5": 0.75,
+      "all@3": 0.25,
+      "all@5": 0.5
+    }
+  }
+}
