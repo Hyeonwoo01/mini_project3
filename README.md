@@ -238,6 +238,18 @@ cp .env.example .env        # Windows: copy .env.example .env  → 이후 .env �
 `indexer build --chunk-config c500` → `streamlit run app/main.py`. 원본 데이터와 `store/` 는 저장소에 없으므로
 처음 받은 PC 에서는 수집부터 해야 한다. `indexer build` 는 청크 약 5.6만 개를 임베딩 API 로 보내므로 시간과 API 비용이 든다.
 
+저장소만 받은 상태에서 바로 되는 것과 필요한 것:
+
+| 실행 | 저장소만으로 | 필요한 것 |
+|---|---|---|
+| 테스트 (`pytest`) | 된다 | — |
+| 평가 결과 페이지 (요약·검색 실험·답변 품질·거절 임계값) | 된다 (`eval/results` 를 읽음) | — |
+| 평가 결과의 지식베이스 보기 | 안내만 나온다 | `store/docs.db` |
+| 챗봇 | 원인 안내와 함께 입력창이 꺼진다 | `store/` (벡터 DB·원문 DB)와 `.env` 의 `OPENAI_API_KEY` |
+
+`store/` 는 제공 뉴스 본문이 들어 있어(재배포 금지) 저장소에 넣지 않는다. 수집부터 다시 만들거나(위 순서), 작성자가 따로 전달한
+`store/` 폴더를 프로젝트 루트에 넣으면 인덱싱 없이 챗봇이 바로 동작한다.
+
 **① 수집** — 결과: `store/docs.db` 의 `documents`, `data/raw/`
 
 제공 CSV(소상공인 묶음, 지역화폐)를 **원래 파일명 그대로** `data/provided/` 에 넣은 뒤 적재한다.

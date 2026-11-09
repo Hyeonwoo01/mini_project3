@@ -303,12 +303,13 @@ def render() -> None:
     question = question.strip() if question and chain is not None else None
 
     filters, show_scores = render_subnav(has_turns=bool(turns or question))
-    if chain_error:
-        st.html(ui.callout_html("챗봇을 시작할 수 없습니다", [chain_error], tone="reject"))
     if not turns and not question:
         render_empty_state()
     for index, turn in enumerate(turns):
         render_turn(index, turn, show_scores)
     if question and chain is not None:
         answer_question(chain, question, filters, turns)
+    if chain_error:
+        # 채팅 화면은 맨 아래로 스크롤되므로, 비활성화된 입력창 바로 위에 원인을 보여 준다 (맨 위에 두면 화면 밖으로 밀린다)
+        st.html(ui.callout_html("챗봇을 시작할 수 없습니다", [chain_error], tone="reject"))
     st.html(ui.footer_html(FOOTER_LINES))
