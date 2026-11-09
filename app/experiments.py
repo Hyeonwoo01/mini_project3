@@ -217,7 +217,8 @@ ADOPTED_RETRIEVAL_RUN = "20261105-0458_hybrid-c500-ctx2-kb4-r1-v2.3groups"
 
 # 거절 임계값 근거: 답변 불가 문항까지 포함한 검색 실험 (30문항)
 THRESHOLD_RUNS: tuple[RunRef, ...] = (
-    RunRef("20261104-1035_hybrid-c500-kb2-pdffix", "하이브리드 + 1차 자료 (현재)"),
+    RunRef("20261105-0458_hybrid-c500-ctx2-kb4-r1-v2.3groups", "채택 설정 (현재, 38문항)"),
+    RunRef("20261104-1035_hybrid-c500-kb2-pdffix", "하이브리드 + 1차 자료 (뉴스 24문항)"),
     RunRef("20261104-1019_hybrid-c500-v1.3", "하이브리드, 뉴스만"),
     RunRef("20261103-1702_baseline-c500-v1.2", "의미 검색 기준선"),
 )
